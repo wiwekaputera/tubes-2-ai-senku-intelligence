@@ -10,11 +10,19 @@ class DecisionTreeScratch:
         self.tree = None
 
     def _gini(self, y):
-        """Calculate Gini impurity"""
-        if len(y) == 0:
+        """Calculate Gini impurity (Optimized)"""
+        n = len(y)
+        if n == 0:
             return 0
-        _, counts = np.unique(y, return_counts=True)
-        probs = counts / len(y)
+        
+        # OPTIMIZATION: Use bincount instead of unique (much faster for ints)
+        # Ensure y is int type. preprocessing.py should guarantee this.
+        counts = np.bincount(y.astype(int))
+        
+        # Remove zeros (for classes that aren't present in this node)
+        counts = counts[counts > 0]
+        
+        probs = counts / n
         return 1 - np.sum(probs ** 2)
 
     def _is_categorical(self, values):
