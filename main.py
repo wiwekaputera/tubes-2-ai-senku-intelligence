@@ -3,6 +3,7 @@ import os
 import numpy as np
 import itertools
 import pandas as pd
+from joblib import Parallel, delayed
 
 # Add src to path so we can import modules
 sys.path.append(os.path.join(os.path.dirname(__file__), 'src'))
@@ -85,36 +86,31 @@ def k_fold_cross_validation(model_class, params, X, y, k=5):
     return np.mean(accuracies)
 
 def grid_search(model_class, param_grid, X, y, k=5):
-    """
-    Exhaustively searches over param_grid to find best parameters.
-    """
     keys = param_grid.keys()
     values = param_grid.values()
     combinations = list(itertools.product(*values))
     
-    best_score = -1
-    best_params = None
+    print(f"🚀 Parallel Grid Search: Testing {len(combinations)} combos on 2+ cores...")
     
-    print(f"Starting Grid Search for {model_class.__name__} ({len(combinations)} combos)...")
-    
-    for combo in combinations:
-        # Create a dictionary for this specific combination
-        # e.g., {'max_depth': 5, 'min_samples': 10}
+    # Define a helper function to run ONE combination
+    def run_one_combo(combo):
         params = dict(zip(keys, combo))
-        
         try:
             score = k_fold_cross_validation(model_class, params, X, y, k=k)
-            # print(f"   Tested {params} -> Acc: {score:.4f}") # Optional: Verbose
-            
-            if score > best_score:
-                best_score = score
-                best_params = params
+            return (params, score)
         except Exception as e:
-            print(f"Crash with params {params}: {e}")
-            
+            return (params, -1)
+
+    # Run in parallel using all available cores (-1)
+    results = Parallel(n_jobs=-1, verbose=10)(
+        delayed(run_one_combo)(c) for c in combinations
+    )
+    
+    # Find best
+    best_params, best_score = max(results, key=lambda x: x[1])
+    
     print(f"Best Params: {best_params} | Best CV Score: {best_score:.4f}")
     return best_params, best_score
-
 
 def main():
     print("Checking project structure...")
