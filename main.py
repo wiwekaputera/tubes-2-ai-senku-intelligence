@@ -51,15 +51,6 @@ def random_oversampling(X, y):
     return X_res[perm], y_res[perm]
 
 def k_fold_cross_validation(model_class, params, X, y, k=5):
-    """
-    Performs k-fold CV from scratch.
-    
-    Args:
-        model_class: The class (not instance) of the model (e.g., DTLScratch)
-        params: Dictionary of parameters to initialize the model with.
-        X, y: Training data
-        k: Number of folds
-    """
     fold_size = len(X) // k
     indices = np.arange(len(X))
     np.random.shuffle(indices)
@@ -67,24 +58,24 @@ def k_fold_cross_validation(model_class, params, X, y, k=5):
     accuracies = []
     
     for i in range(k):
-        # Define validation indices
+        # 1. SPLIT (Raw, Imbalanced Data)
         start = i * fold_size
         end = (i + 1) * fold_size
         val_idx = indices[start:end]
-        
-        # Define training indices (all indices NOT in validation)
         train_idx = np.concatenate([indices[:start], indices[end:]])
         
-        X_fold_train, y_fold_train = X[train_idx], y[train_idx]
+        X_fold_train_raw, y_fold_train_raw = X[train_idx], y[train_idx]
         X_fold_val, y_fold_val = X[val_idx], y[val_idx]
         
-        # Instantiate fresh model for this fold
+        # 2. OVERSAMPLE (Only the Training Portion!)
+        # We reuse your existing random_oversampling function here
+        X_fold_train_bal, y_fold_train_bal = random_oversampling(X_fold_train_raw, y_fold_train_raw)
+        
+        # 3. TRAIN (On Balanced Data)
         model = model_class(**params)
+        model.fit(X_fold_train_bal, y_fold_train_bal)
         
-        # Train
-        model.fit(X_fold_train, y_fold_train)
-        
-        # Predict
+        # 4. VALIDATE (On Original, Imbalanced Validation Data)
         preds = model.predict(X_fold_val)
         
         # Calculate Accuracy
@@ -183,13 +174,13 @@ def main():
     # 4. Run Grid Search
     print("[4] Tuning")
     print("\n--- Tuning Decision Tree ---")
-    best_dtl_params, best_dtl_score = grid_search(DecisionTreeScratch, dtl_grid, X_train_bal, y_train_bal)
+    best_dtl_params, best_dtl_score = grid_search(DecisionTreeScratch, dtl_grid, X_train, y_train)
 
     print("\n--- Tuning Logistic Regression (OvA) ---")
-    best_lr_params, best_lr_score = grid_search(OneVsAllClassifier, logreg_ova_grid, X_train_bal, y_train_bal)
+    best_lr_params, best_lr_score = grid_search(OneVsAllClassifier, logreg_ova_grid, X_train, y_train)
 
     print("\n--- Tuning SVM (OvA) ---")
-    best_svm_params, best_svm_score = grid_search(SVMScratch, svm_grid, X_train_bal, y_train_bal)
+    best_svm_params, best_svm_score = grid_search(SVMScratch, svm_grid, X_train, y_train)
 
     # 5. Final Training & Kaggle Submission
     # We select the best model based on CV score
