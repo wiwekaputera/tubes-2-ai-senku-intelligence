@@ -17,32 +17,31 @@ class SVMNode:
         self.weights = np.zeros(num_features)
         self.bias = 0
         
-        # CPU Optimization: Vectorization (No 'for' loops over data)
-        # Convert labels: 0 -> -1, 1 -> 1
         y_scaled = np.where(y_train <= 0, -1, 1)
 
         for epoch in range(self.epochs):
-            # 1. Compute ALL margins instantly using CPU SIMD instructions
+            # 1. Linear Pass (Vectorized)
             margins = np.dot(X_train, self.weights) + self.bias
             
-            # 2. Find misclassified points (Boolean Mask)
+            # 2. Find Misclassified (Vectorized Mask)
+            # Condition: y_i * (w.x_i + b) < 1
             misclassified = (y_scaled * margins) < 1
             
-            # 3. Compute Gradients (Vectorized Sum)
+            # 3. Compute Gradients
+            # Regularization gradient (always applied)
+            grad_w = self.reg * self.weights
+            grad_b = 0
+            
             if np.any(misclassified):
-                # Filter data using the mask
                 X_mis = X_train[misclassified]
                 y_mis = y_scaled[misclassified]
                 
-                # Math: Gradient = Regularization - C * sum(y_i * x_i)
-                # np.dot(y, X) performs the sum *and* multiplication in one step
-                grad_w = self.reg * self.weights - (self.C * np.dot(y_mis, X_mis)) 
-                grad_b = -self.C * np.sum(y_mis)
-            else:
-                grad_w = self.reg * self.weights
-                grad_b = 0
+                # OPTIMIZATION: Normalize by Number of Samples
+                # This stabilizes training regardless of dataset size
+                grad_w -= (self.C * np.dot(y_mis, X_mis)) / num_samples
+                grad_b -= (self.C * np.sum(y_mis)) / num_samples
 
-            # 4. Update Weights
+            # 4. Update
             self.weights -= self.lr * grad_w
             self.bias -= self.lr * grad_b
 
