@@ -1,142 +1,91 @@
-import cupy as np
-import json # hapus ja save loadnya klo dipusatin bang
-
-class SVMNode:
-    def __init__(self, learning_rate=0.001, reg_strength=0.01, max_epochs=1000):
-        self.lr = learning_rate
-        self.reg = reg_strength 
-        self.epochs = max_epochs
-        self.weights = None
-        self.bias = None
-
-    def compute_margin(self, X):
-        return np.dot(X, self.weights) + self.bias
-
-    def train_node(self, X_train, y_train):
-        num_samples, num_features = X_train.shape
-        
-        self.weights = np.zeros(num_features)
-        self.bias = 0
-
-        y_scaled = np.where(y_train <= 0, -1, 1)
-
-        for epoch in range(self.epochs):
-            indices = np.random.permutation(num_samples)
-            
-            for i in indices:
-                xi = X_train[i]
-                target = y_scaled[i]
-
-                current_margin = self.compute_margin(xi)
-                
-                check_condition = target * current_margin >= 1
-                
-                if check_condition: # classified di luar margin
-                    gradient_w = 2 * self.reg * self.weights
-                    self.weights = self.weights - (self.lr * gradient_w)
-                else:
-                    gradient_w = (2 * self.reg * self.weights) - (target * xi)
-                    self.weights = self.weights - (self.lr * gradient_w)
-
-                    self.bias = self.bias + (self.lr * target)
+import cupy as cp
+import numpy as np
+import json
 
 class SVMScratch:
     def __init__(self, learning_rate=0.001, lambda_param=0.01, n_iters=1000):
-        self.learning_rate = learning_rate
+        self.lr = learning_rate
         self.lambda_param = lambda_param
         self.n_iters = n_iters
-        
-        self.sub_classifiers = []
-        self.known_classes = []
+        self.classifiers = []
+        self.classes = None
 
-    def fit(self, features, targets): 
-        # One-vs-All
-        self.sub_classifiers = []
-        self.known_classes = np.unique(targets)
+    def fit(self, X, y):
+        # 1. Convert Inputs to GPU (CuPy)
+        X_gpu = cp.asarray(X)
+        y_gpu = cp.asarray(y)
         
-        n_classes = len(self.known_classes)
-        print(f"SVM untuk {n_classes} kelas: {self.known_classes}")
+        self.classes = cp.unique(y_gpu)
+        self.classifiers = []
         
-        for cls in self.known_classes:
-            binary_labels = np.where(targets == cls, 1, -1)
+        print(f"🚀 Training SVM on GPU for classes: {self.classes}")
+        
+        # Train One-vs-All
+        for cls in self.classes:
+            # Create Binary Targets (-1 vs 1)
+            y_binary = cp.where(y_gpu == cls, 1, -1)
             
-            node = SVMNode(
-                learning_rate=self.learning_rate,
-                reg_strength=self.lambda_param,
-                max_epochs=self.n_iters
-            )
+            node = SVMNode(self.lr, self.lambda_param, self.n_iters)
+            node.train(X_gpu, y_binary)
+            self.classifiers.append(node)
 
-            node.train_node(features, binary_labels)
-
-            self.sub_classifiers.append(node)
-
-    def predict(self, features):
-        if not self.sub_classifiers:
-            raise Exception("Error: Model belum dilatih!")
-
-        num_samples = features.shape[0]
-        num_classes = len(self.known_classes)
+    def predict(self, X):
+        # 1. Convert Input to GPU
+        X_gpu = cp.asarray(X)
         
-        scores_matrix = np.zeros((num_samples, num_classes))
-
-        for idx, node in enumerate(self.sub_classifiers):
-            scores_matrix[:, idx] = node.compute_margin(features)
-
-        winning_indices = np.argmax(scores_matrix, axis=1)
-        return self.known_classes[winning_indices]
-
-    def save_model(self, file_path):
-        model_container = {
-            "hyperparams": {
-                "lr": self.learning_rate,
-                "reg": self.lambda_param,
-                "iters": self.n_iters
-            },
-            "classes": self.known_classes.tolist(),
-            "weights_data": []
-        }
-
-        for node in self.sub_classifiers:
-            node_data = {
-                "w_list": node.weights.tolist(),
-                "b_val": node.bias
-            }
-            model_container["weights_data"].append(node_data)
+        n_samples = X_gpu.shape[0]
+        n_classes = len(self.classes)
+        scores = cp.zeros((n_samples, n_classes))
         
-        try:
-            with open(file_path, 'w') as f:
-                json.dump(model_container, f, indent=4)
-            print(f"Model tersimpan di {file_path}")
-        except Exception as e:
-            print(f"Gagal menyimpan model: {e}")
+        # 2. Get scores from all classifiers
+        for idx, node in enumerate(self.classifiers):
+            scores[:, idx] = node.predict_score(X_gpu)
+            
+        # 3. Find max score
+        winning_indices = cp.argmax(scores, axis=1)
+        
+        # 4. Convert Result back to CPU (NumPy) for compatibility
+        return cp.asnumpy(self.classes[winning_indices])
 
-    @staticmethod
-    def load_model(file_path): # Load dri JSON
-        try:
-            with open(file_path, 'r') as f:
-                data = json.load(f)
-
-            hp = data["hyperparams"]
-            new_svm = SVMScratch(
-                learning_rate=hp["lr"], 
-                lambda_param=hp["reg"], 
-                n_iters=hp["iters"]
-            )
-            new_svm.known_classes = np.array(data["classes"])
-
-            for w_data in data["weights_data"]:
-                temp_node = SVMNode()
-                temp_node.weights = np.array(w_data["w_list"])
-                temp_node.bias = w_data["b_val"]
-                temp_node.lr = hp["lr"]
-                temp_node.reg = hp["reg"]
-                temp_node.epochs = hp["iters"]
-
-                new_svm.sub_classifiers.append(temp_node)
+class SVMNode:
+    def __init__(self, lr, reg, epochs):
+        self.lr = lr
+        self.reg = reg
+        self.epochs = epochs
+        self.weights = None
+        self.bias = None
+        
+    def train(self, X, y):
+        n_samples, n_features = X.shape
+        self.weights = cp.zeros(n_features)
+        self.bias = 0
+        
+        for _ in range(self.epochs):
+            # --- FULLY VECTORIZED UPDATE (No Loops) ---
+            
+            # Calculate margins
+            margins = y * (cp.dot(X, self.weights) + self.bias)
+            
+            # Identify misclassified points
+            misclassified_mask = margins < 1
+            
+            # Gradient of Regularization term
+            dw = 2 * self.reg * self.weights
+            db = 0
+            
+            # Gradient of Hinge Loss (only for misclassified)
+            if cp.any(misclassified_mask):
+                # sum(-y_i * x_i)
+                # We use matrix multiplication: X[mask].T @ y[mask]
+                X_mis = X[misclassified_mask]
+                y_mis = y[misclassified_mask]
                 
-            print(f"Model berhasil dimuat dari {file_path}")
-            return new_svm
+                dw -= cp.dot(X_mis.T, y_mis)
+                db -= cp.sum(y_mis)
+                
+            # Update parameters
+            self.weights -= self.lr * dw
+            self.bias -= self.lr * db
             
-        except FileNotFoundError:
-            print("File tidak ditemukan.")
-            return None
+    def predict_score(self, X):
+        return cp.dot(X, self.weights) + self.bias

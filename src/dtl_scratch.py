@@ -1,4 +1,4 @@
-import cupy as np
+import numpy as np
 import pickle
 
 class DecisionTreeScratch:
@@ -112,6 +112,8 @@ class DecisionTreeScratch:
 
     def fit(self, X, y):
         """Fitting model to training data"""
+        if hasattr(X, 'get'): X = X.get() # Handle CuPy
+        if hasattr(y, 'get'): y = y.get()
         self.tree = self._build_tree(X, y)
         return self
 
