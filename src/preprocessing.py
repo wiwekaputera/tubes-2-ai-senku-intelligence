@@ -176,63 +176,81 @@ def save_processed_data(
     print(f"All files saved to {processed_path}/")
 
 
-# FULL PIPELINE
-def run_full_pipeline(
-    raw_path="data/raw", processed_path="data/processed", handle_outliers_flag=True
-):
+def encode_data(train_df, test_df):
     """
-    Run the entire preprocessing pipeline in one go.
+    1. Encodes Target (Dropout -> 0)
+    2. One-Hot Encodes Categorical Features (Marital, Course, etc.)
     """
-    print("=" * 60)
-    print("STARTING FULL PREPROCESSING PIPELINE")
-    print("=" * 60)
+    # 1. Encode Target
+    target_map = {"Dropout": 0, "Enrolled": 1, "Graduate": 2}
+    if "Target" not in train_df.columns:
+        raise ValueError("Target column not found")
+    
+    y_train = train_df["Target"].map(target_map).values
+    
+    # Drop Target from features
+    X_train_raw = train_df.drop(columns=["Target"])
+    X_test_raw = test_df.copy() # Test set has no target
+    
+    # 2. Identify Categorical Columns (Those with few unique values)
+    # In this dataset, many "int" columns are actually categories (Course, Marital, etc.)
+    # Rule of thumb: < 20 unique values = Categorical
+    cat_cols = [col for col in X_train_raw.columns if X_train_raw[col].nunique() < 20]
+    num_cols = [col for col in X_train_raw.columns if col not in cat_cols]
+    
+    print(f"🔠 Categorical Cols ({len(cat_cols)}): {cat_cols}")
+    print(f"🔢 Numerical Cols ({len(num_cols)}): {num_cols}")
+    
+    # 3. One-Hot Encoding (using Pandas get_dummies)
+    # We combine train/test temporarily to ensure same columns exist in both
+    combined = pd.concat([X_train_raw, X_test_raw], axis=0)
+    combined_encoded = pd.get_dummies(combined, columns=cat_cols, dtype=int)
+    
+    # Split back
+    X_train_encoded = combined_encoded.iloc[:len(X_train_raw)]
+    X_test_encoded = combined_encoded.iloc[len(X_train_raw):]
+    
+    return X_train_encoded, y_train, X_test_encoded
 
-    # 1. Load data
+def split_train_val(X, y, test_size=0.2, random_state=42):
+    # Standard shuffle split
+    indices = np.arange(len(y))
+    np.random.seed(random_state)
+    np.random.shuffle(indices)
+    
+    split_idx = int((1 - test_size) * len(y))
+    train_idx, val_idx = indices[:split_idx], indices[split_idx:]
+    
+    # X is a DataFrame from encode_data
+    return X.iloc[train_idx].values, X.iloc[val_idx].values, y[train_idx], y[val_idx]
+
+def run_full_pipeline(raw_path="data/raw", processed_path="data/processed", handle_outliers_flag=True):
+    print("="*60 + "\nSTARTING REFACTORED PIPELINE (One-Hot + CPU)\n" + "="*60)
+    
     train_df, test_df = load_data(raw_path)
-
-    # 2. Check data types (for verification)
-    check_data_types(train_df)
-
-    # 3. Remove duplicates
     train_df = remove_duplicates(train_df)
-
-    # 4. Handle IDs
     train_df, test_df = extract_and_drop_ids(train_df, test_df, processed_path)
-
-    # 5. Encode target
-    X_train_all, y_all = encode_target(train_df)
-
-    # 6. Split train/val
-    X_train, X_val, y_train, y_val = split_train_val(X_train_all, y_all)
-
-    # 7. Convert test to numpy
-    X_test = test_df.values
-
-    # 8. Impute missing values
+    
+    # --- NEW ENCODING STEP ---
+    X_train_df, y_train_all, X_test_df = encode_data(train_df, test_df)
+    
+    # Split
+    X_train, X_val, y_train, y_val = split_train_val(X_train_df, y_train_all)
+    X_test = X_test_df.values
+    
+    # Impute & Outliers & Standardize (Same as before)
+    # Note: Standardizing One-Hot columns is debatable, but acceptable for SVM.
     X_train, X_val, X_test = impute_missing_values(X_train, X_val, X_test)
-
-    # 9. Handle outliers (optional)
+    
     if handle_outliers_flag:
+        # Only outlier clipping on the continuous columns might be better, 
+        # but global clipping is "safe enough" for this assignment level.
         X_train, X_val, X_test = handle_outliers(X_train, X_val, X_test)
-
-    # 10. Standardize features
+        
     X_train, X_val, X_test, mean, std = standardize_features(X_train, X_val, X_test)
-
-    # 11. Save all processed data
-    save_processed_data(
-        X_train, y_train, X_val, y_val, X_test, mean, std, processed_path
-    )
-
-    print("=" * 60)
-    print("PREPROCESSING COMPLETE")
-    print("=" * 60)
-    print(f" X_train: {X_train.shape}")
-    print(f" y_train: {y_train.shape}")
-    print(f" X_val: {X_val.shape}")
-    print(f" y_val: {y_val.shape}")
-    print(f" X_test: {X_test.shape}")
-    print(f" All files saved to '{processed_path}/'")
-
+    
+    save_processed_data(X_train, y_train, X_val, y_val, X_test, mean, std, processed_path)
+    print("Preprocessing Complete.")
 
 if __name__ == "__main__":
     # Run the full pipeline
