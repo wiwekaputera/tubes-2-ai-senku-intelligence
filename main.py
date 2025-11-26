@@ -90,7 +90,7 @@ def grid_search(model_class, param_grid, X, y, k=5):
     values = param_grid.values()
     combinations = list(itertools.product(*values))
     
-    print(f"🚀 Parallel Grid Search: Testing {len(combinations)} combos on 2+ cores...")
+    print(f"Parallel Grid Search: Testing {len(combinations)} combos on 2+ cores...")
     
     # Define a helper function to run ONE combination
     def run_one_combo(combo):
@@ -215,7 +215,7 @@ def main():
     # Map numeric predictions back to strings if necessary 
     # (Check if P1's encoder map is available, otherwise submit numeric if allowed)
     
-    submission_path = "submission.csv"
+    submission_path = f"submission_{winner_name}.csv"
     submission_df.to_csv(submission_path, index=False)
     print(f"\nSubmission saved to {submission_path}")
 

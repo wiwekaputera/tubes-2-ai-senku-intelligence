@@ -38,8 +38,8 @@ class SVMNode:
                 
                 # OPTIMIZATION: Normalize by Number of Samples
                 # This stabilizes training regardless of dataset size
-                grad_w -= (self.C * np.dot(y_mis, X_mis)) / num_samples
-                grad_b -= (self.C * np.sum(y_mis)) / num_samples
+                grad_w -= (np.dot(y_mis, X_mis)) / num_samples
+                grad_b -= (np.sum(y_mis)) / num_samples
 
             # 4. Update
             self.weights -= self.lr * grad_w
