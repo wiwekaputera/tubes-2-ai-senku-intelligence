@@ -1,5 +1,5 @@
 import pandas as pd
-import numpy as np
+import cupy as np
 import os
 
 # UTILITY FUNCTIONS
@@ -205,7 +205,7 @@ def run_full_pipeline(
     # 6. Split train/val
     X_train, X_val, y_train, y_val = split_train_val(X_train_all, y_all)
 
-    # 7. Convert test to numpy
+    # 7. Convert test to cupy
     X_test = test_df.values
 
     # 8. Impute missing values

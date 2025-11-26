@@ -1,4 +1,4 @@
-import numpy as np
+import cupy as np
 import json # hapus ja save loadnya klo dipusatin bang
 
 class SVMNode:
