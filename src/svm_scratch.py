@@ -61,29 +61,22 @@ class SVMNode:
         self.bias = 0
         
         for _ in range(self.epochs):
-            # --- FULLY VECTORIZED UPDATE (No Loops) ---
-            
-            # Calculate margins
             margins = y * (cp.dot(X, self.weights) + self.bias)
-            
-            # Identify misclassified points
             misclassified_mask = margins < 1
             
-            # Gradient of Regularization term
+            # Gradient of Regularization (L2)
             dw = 2 * self.reg * self.weights
             db = 0
             
-            # Gradient of Hinge Loss (only for misclassified)
             if cp.any(misclassified_mask):
-                # sum(-y_i * x_i)
-                # We use matrix multiplication: X[mask].T @ y[mask]
                 X_mis = X[misclassified_mask]
                 y_mis = y[misclassified_mask]
                 
-                dw -= cp.dot(X_mis.T, y_mis)
-                db -= cp.sum(y_mis)
+                # === FIX: Normalize by Number of Samples ===
+                # This keeps gradients stable regardless of batch size
+                dw -= (self.reg * cp.dot(X_mis.T, y_mis)) / n_samples  # <--- Added / n_samples
+                db -= (self.reg * cp.sum(y_mis)) / n_samples           # <--- Added / n_samples
                 
-            # Update parameters
             self.weights -= self.lr * dw
             self.bias -= self.lr * db
             
