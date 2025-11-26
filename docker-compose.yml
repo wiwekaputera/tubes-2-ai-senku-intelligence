@@ -1,0 +1,6 @@
+services:
+  trainer:
+    build: .
+    resources:
+      limits:
+        memory: 8G
