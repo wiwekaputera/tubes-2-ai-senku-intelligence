@@ -3,6 +3,7 @@ import os
 import cupy as np
 import itertools
 import pandas as pd
+import numpy as _cpu_np
 
 # Add src to path so we can import modules
 sys.path.append(os.path.join(os.path.dirname(__file__), 'src'))
@@ -26,28 +27,37 @@ def load_processed_data():
         sys.exit(1)
 
 def random_oversampling(X, y):
-    unique_classes, counts = np.unique(y, return_counts=True)
-    max_count = np.max(counts)
+    """
+    Robust Random Oversampling that runs safely on CPU.
+    """
+    # 1. Ensure inputs are standard CPU NumPy arrays (prevents CuPy crashes)
+    if hasattr(X, 'get'): X = X.get()
+    if hasattr(y, 'get'): y = y.get()
+    
+    # 2. Use standard NumPy for calculations
+    unique_classes, counts = _cpu_np.unique(y, return_counts=True)
+    
+    # Explicitly cast to Python int to avoid scalar errors
+    max_count = int(_cpu_np.max(counts))
     
     X_balanced = []
     y_balanced = []
     
     for cls in unique_classes:
-        # Get indices for this class
-        indices = np.where(y == cls)[0]
+        indices = _cpu_np.where(y == cls)[0]
         
-        # Select random samples with replacement until we reach max_count
-        oversampled_indices = np.random.choice(indices, size=max_count, replace=True)
+        # 3. Use CPU Random Choice
+        oversampled_indices = _cpu_np.random.choice(indices, size=max_count, replace=True)
         
         X_balanced.append(X[oversampled_indices])
         y_balanced.append(y[oversampled_indices])
         
-    # Concatenate and Shuffle
-    X_res = np.vstack(X_balanced)
-    y_res = np.hstack(y_balanced)
+    # 4. Concatenate
+    X_res = _cpu_np.vstack(X_balanced)
+    y_res = _cpu_np.hstack(y_balanced)
     
-    # Shuffle to mix the classes
-    perm = np.random.permutation(len(X_res))
+    # 5. Shuffle
+    perm = _cpu_np.random.permutation(len(X_res))
     return X_res[perm], y_res[perm]
 
 def k_fold_cross_validation(model_class, params, X, y, k=5):
