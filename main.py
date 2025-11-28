@@ -325,7 +325,7 @@ def main():
         'Target': string_preds 
     })
 
-    submission_path = f"data/submission/submission_{winner_name}_{date_str}.csv"
+    submission_path = f"data/submit/submission_{winner_name}_{date_str}.csv"
     submission_df.to_csv(submission_path, index=False)
     print(f"\nSubmission saved to {submission_path}")
 
