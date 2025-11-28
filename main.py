@@ -121,19 +121,15 @@ def main():
 
     # 2. Verify Models
     dt = DecisionTreeScratch()
-    lr = LogisticRegressionScratch()
-    ova = OneVsAllClassifier(LogisticRegressionScratch)
     svm = SVMScratch()
     
     print(f"[2] Models Loaded Successfully:")
     print(f"    - {dt.__class__.__name__}")
-    print(f"    - {lr.__class__.__name__}")
-    print(f"    - {ova.__class__.__name__}")
     print(f"    - {svm.__class__.__name__}")
 
     print("\nProject scaffolding is ready.")
 
-# ==========================================
+    # ==========================================
     
     # 1. Load Data
     X_train, y_train, X_test_kaggle, test_ids = load_processed_data()
@@ -146,24 +142,15 @@ def main():
     # 3. Define Grids for each model
     
     # --- Model A: Decision Tree (Native Multiclass) ---
-    # Adjust 'max_depth' based on your tree implementation details
     dtl_grid = {
-        'max_depth': [3, 5, 10, None],
-        'min_samples_split': [2, 5, 10]
+        'max_depth': [5, 10, 15, None], # Increased depth slightly
+        'min_samples_split': [2, 10, 20]
     }
     
-    # --- Model B: Logistic Regression (Wrapped in OneVsAll) ---
-    # We pass 'LogisticRegressionScratch' as a parameter to OvA (masi placeholder nunggu lrnya beres)
-    logreg_ova_grid = {
-        'model_class': [LogisticRegressionScratch],  # MUST be a list with one item
-        'learning_rate': [0.1, 0.01, 0.001],
-        'epochs': [500, 1000]
-    }
-    
-    # --- Model C: SVM ---
+    # --- Model B: SVM ---
     svm_grid = {
         'learning_rate': [0.001, 0.0001],
-        'lambda_param': [0.01, 0.1, 1.0],
+        'lambda_param': [0.01, 0.1],
         'n_iters': [500, 1000]
     }
 
@@ -172,9 +159,6 @@ def main():
     print("\n--- Tuning Decision Tree ---")
     best_dtl_params, best_dtl_score = grid_search(DecisionTreeScratch, dtl_grid, X_train, y_train)
 
-    print("\n--- Tuning Logistic Regression (OvA) ---")
-    best_lr_params, best_lr_score = grid_search(OneVsAllClassifier, logreg_ova_grid, X_train, y_train)
-
     print("\n--- Tuning SVM (OvA) ---")
     best_svm_params, best_svm_score = grid_search(SVMScratch, svm_grid, X_train, y_train)
 
@@ -182,7 +166,6 @@ def main():
     # We select the best model based on CV score
     scores = {
         "DTL": best_dtl_score,
-        "LogReg": best_lr_score,
         "SVM": best_svm_score
     }
     winner_name = max(scores, key=scores.get)
@@ -192,8 +175,6 @@ def main():
     final_model = None
     if winner_name == "DTL":
         final_model = DecisionTreeScratch(**best_dtl_params)
-    elif winner_name == "LogReg":
-        final_model = OneVsAllClassifier(**best_lr_params)
     elif winner_name == "SVM":
         final_model = SVMScratch(**best_svm_params)
         
@@ -209,11 +190,8 @@ def main():
     # Save CSV
     submission_df = pd.DataFrame({
         'Student_ID': test_ids,
-        'Target': string_preds # Ensure this matches the required column name (e.g. 'Target' or 'Status')
+        'Target': string_preds 
     })
-    
-    # Map numeric predictions back to strings if necessary 
-    # (Check if P1's encoder map is available, otherwise submit numeric if allowed)
     
     submission_path = f"submission_{winner_name}.csv"
     submission_df.to_csv(submission_path, index=False)
