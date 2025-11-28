@@ -4,13 +4,14 @@ import numpy as np
 import itertools
 import pandas as pd
 from joblib import Parallel, delayed
+from datetime import datetime, timezone
 
 # Add src to path so we can import modules
 sys.path.append(os.path.join(os.path.dirname(__file__), 'src'))
 
 from src.preprocessing import run_full_pipeline as run_pipeline
 from src.dtl_scratch import DecisionTreeScratch
-from src.linear_models import LogisticRegressionScratch, OneVsAllClassifier
+from src.linear_models import LogisticRegression, OneVsAll
 from src.svm_scratch import SVMScratch
 
 def load_processed_data():
@@ -154,6 +155,13 @@ def main():
         'n_iters': [500, 1000]
     }
 
+    # --- Model C: LogReg ---
+    lr_grid = {
+        'model_class': [LogisticRegression],
+        'learning_rate': [0.001, 0.0001],
+        'n_iterations': [500, 1000]
+    }
+
     # 4. Run Grid Search
     print("[4] Tuning")
     print("\n--- Tuning Decision Tree ---")
@@ -162,10 +170,14 @@ def main():
     print("\n--- Tuning SVM (OvA) ---")
     best_svm_params, best_svm_score = grid_search(SVMScratch, svm_grid, X_train, y_train)
 
+    print("\n--- Tuning LogReg (OvA) ---")
+    best_lr_params, best_lr_score = grid_search(OneVsAll, lr_grid, X_train, y_train)
+
     # 5. Final Training & Kaggle Submission
     # We select the best model based on CV score
     scores = {
         "DTL": best_dtl_score,
+        "LogReg": best_lr_score,
         "SVM": best_svm_score
     }
     winner_name = max(scores, key=scores.get)
@@ -177,6 +189,8 @@ def main():
         final_model = DecisionTreeScratch(**best_dtl_params)
     elif winner_name == "SVM":
         final_model = SVMScratch(**best_svm_params)
+    else :
+        final_model = OneVsAll(**best_lr_params)
         
     final_model.fit(X_train_bal, y_train_bal)
     
@@ -193,7 +207,9 @@ def main():
         'Target': string_preds 
     })
     
-    submission_path = f"submission_{winner_name}.csv"
+    date_str = datetime.now(timezone.utc).strftime('%Y%m%d')
+
+    submission_path = f"data/submission/submission_{winner_name}_{date_str}.csv"
     submission_df.to_csv(submission_path, index=False)
     print(f"\nSubmission saved to {submission_path}")
 
