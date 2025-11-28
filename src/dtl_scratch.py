@@ -30,44 +30,57 @@ class DecisionTreeScratch:
         unique_vals = np.unique(values[~np.isnan(values)])
         return len(unique_vals) <= 10   
 
-    def _split(self, X, y, feature_idx, threshold, is_categorical):
-        """Split dataset from feature type"""
-        if is_categorical:
-            left_mask = X[:, feature_idx] == threshold
-        else:
-            left_mask = X[:, feature_idx] <= threshold
-        
+    def _split(self, X, y, feature_idx, threshold):
+        """Split dataset (Vectorized and simplified)"""
+        # Since we treat everything as numeric thresholds (even binary <= 0.5), 
+        # we can unify this.
+        left_mask = X[:, feature_idx] <= threshold
         right_mask = ~left_mask
         return X[left_mask], y[left_mask], X[right_mask], y[right_mask]
 
-    def _best_split(self, X, y):  
-        """Finding best split"""
+    def _best_split(self, X, y, feat_types):  
+        """Finding best split with pre-computed feature types"""
         best_gain = -1
         best_feature = None
         best_threshold = None
-        best_is_categorical = False
         
         parent_impurity = self._gini(y)
         n_samples = len(y)
         n_features = X.shape[1]
         
+        # Random feature subsampling (mtry) - optional but good for Random Forest later
+        # features_to_check = range(n_features) 
+        
         for feature_idx in range(n_features):
-            feature_values = X[:, feature_idx]
-            is_categorical = self._is_categorical(feature_values)
+            # Skip if column is constant
             
-            valid_mask = ~np.isnan(feature_values)
-            thresholds = np.unique(feature_values[valid_mask])
+            f_type = feat_types[feature_idx]
             
-            if not is_categorical and len(thresholds) > 20: # Take sample threshold if too many
-                thresholds = np.percentile(feature_values[valid_mask], np.linspace(0, 100, 20))
+            # OPTIMIZATION: Handle Binary Features efficiently
+            if f_type == 'binary':
+                # Binary features (0/1) only need one split: <= 0.5
+                # Left: 0, Right: 1
+                thresholds = [0.5]
+            else:
+                # Continuous / Categorical with many values
+                feature_values = X[:, feature_idx]
+                valid_mask = ~np.isnan(feature_values)
+                unique_vals = np.unique(feature_values[valid_mask])
+                
+                if len(unique_vals) < 2:
+                    continue # Constant feature
+                
+                if len(unique_vals) > 20:
+                    # Percentile approximation for continuous
+                    thresholds = np.percentile(feature_values[valid_mask], np.linspace(5, 95, 20))
+                else:
+                    # Check all unique values (midpoints could be better, but exact values ok for now)
+                    thresholds = unique_vals
             
             for threshold in thresholds:
-                X_left, y_left, X_right, y_right = self._split(X, y, feature_idx, threshold, is_categorical)
+                X_left, y_left, X_right, y_right = self._split(X, y, feature_idx, threshold)
                 
                 if len(y_left) < self.min_samples_leaf or len(y_right) < self.min_samples_leaf:
-                    continue
-                
-                if len(y_left) == 0 or len(y_right) == 0:
                     continue
                 
                 n_left, n_right = len(y_left), len(y_right)
@@ -77,19 +90,22 @@ class DecisionTreeScratch:
                 weighted_impurity = (n_left / n_samples) * left_impurity + (n_right / n_samples) * right_impurity
                 gain = parent_impurity - weighted_impurity
                 
-                if gain > best_gain: # Update when found better
+                if gain > best_gain:
                     best_gain = gain
                     best_feature = feature_idx
                     best_threshold = threshold
-                    best_is_categorical = is_categorical
         
-        return best_feature, best_threshold, best_is_categorical
+        return best_feature, best_threshold
 
-    def _build_tree(self, X, y, depth=0):
+    def _build_tree(self, X, y, feat_types, depth=0):
         """Building tree recursively"""
         n_samples = len(y)
         n_classes = len(np.unique(y))
         
+        # Safe check for empty y
+        if n_samples == 0:
+             return {'leaf': True, 'value': None}
+
         majority_class = np.bincount(y.astype(int)).argmax()
         
         if (self.max_depth is not None and depth >= self.max_depth) or \
@@ -98,21 +114,20 @@ class DecisionTreeScratch:
            n_samples < 2 * self.min_samples_leaf:
             return {'leaf': True, 'value': majority_class}
         
-        feature_idx, threshold, is_categorical = self._best_split(X, y)
+        feature_idx, threshold = self._best_split(X, y, feat_types)
         
         if feature_idx is None:
             return {'leaf': True, 'value': majority_class}
         
-        X_left, y_left, X_right, y_right = self._split(X, y, feature_idx, threshold, is_categorical)
+        X_left, y_left, X_right, y_right = self._split(X, y, feature_idx, threshold)
         
-        left_subtree = self._build_tree(X_left, y_left, depth + 1)
-        right_subtree = self._build_tree(X_right, y_right, depth + 1)
+        left_subtree = self._build_tree(X_left, y_left, feat_types, depth + 1)
+        right_subtree = self._build_tree(X_right, y_right, feat_types, depth + 1)
         
         return {
             'leaf': False,
             'feature': feature_idx,
             'threshold': threshold,
-            'is_categorical': is_categorical,
             'majority_class': majority_class,
             'left': left_subtree,
             'right': right_subtree
@@ -120,7 +135,19 @@ class DecisionTreeScratch:
 
     def fit(self, X, y):
         """Fitting model to training data"""
-        self.tree = self._build_tree(X, y)
+        # Pre-calculate feature types to save time during split search
+        self.feat_types = []
+        for i in range(X.shape[1]):
+            # Check if binary (0/1 only)
+            unique = np.unique(X[:, i])
+            # Remove nan
+            unique = unique[~np.isnan(unique)]
+            if len(unique) <= 2 and np.all(np.isin(unique, [0, 1])):
+                self.feat_types.append('binary')
+            else:
+                self.feat_types.append('continuous')
+                
+        self.tree = self._build_tree(X, y, self.feat_types)
         return self
 
     def _predict_single(self, x, node):
@@ -133,13 +160,8 @@ class DecisionTreeScratch:
         if np.isnan(feature_val):
             return node['majority_class'] 
         
-        # Determining the direction of split
-        if node['is_categorical']:
-            go_left = feature_val == node['threshold']
-        else:
-            go_left = feature_val <= node['threshold']
-        
-        if go_left:
+        # Unified Split Logic
+        if feature_val <= node['threshold']:
             return self._predict_single(x, node['left'])
         else:
             return self._predict_single(x, node['right'])
