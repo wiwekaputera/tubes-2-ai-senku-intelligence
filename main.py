@@ -130,7 +130,23 @@ def k_fold_cross_validation(model_class, params, X, y, k=5, use_smote=True):
         
         # 3. TRAIN (On Balanced Data)
         model = model_class(**params)
-        model.fit(X_fold_train_bal, y_fold_train_bal)
+        
+        # Special handling for Decision Tree with post-pruning
+        if model_class == DecisionTreeScratch:
+            # Use a small portion of training data for pruning validation
+            n_prune = int(0.15 * len(X_fold_train_bal))
+            prune_idx = np.random.choice(len(X_fold_train_bal), n_prune, replace=False)
+            train_mask = np.ones(len(X_fold_train_bal), dtype=bool)
+            train_mask[prune_idx] = False
+            
+            X_prune = X_fold_train_bal[prune_idx]
+            y_prune = y_fold_train_bal[prune_idx]
+            X_train_final = X_fold_train_bal[train_mask]
+            y_train_final = y_fold_train_bal[train_mask]
+            
+            model.fit(X_train_final, y_train_final, X_val=X_prune, y_val=y_prune)
+        else:
+            model.fit(X_fold_train_bal, y_fold_train_bal)
         
         # 4. VALIDATE (On Original, Imbalanced Validation Data)
         preds = model.predict(X_fold_val)
@@ -197,17 +213,26 @@ def main():
     
     # 3. Define Grids for each model
     
-    # --- Model A: Decision Tree (Native Multiclass) ---
+    # --- Model A: Decision Tree (Enhanced with new options) ---
+    # Focused grid on most impactful parameters
     dtl_grid = {
-        'max_depth': [5, 10, 15, None], # Increased depth slightly
-        'min_samples_split': [2, 10, 20]
+        'max_depth': [10, 15, 20, None],
+        'min_samples_split': [2, 10, 20],
+        'min_samples_leaf': [1, 3, 5],
+        'criterion': ['gini', 'entropy'],  # Try both criteria
+        'min_impurity_decrease': [0.0, 0.002],  # Minimum gain to split
+        'class_weight': ['balanced'],  # Handle imbalance (key for this dataset)
     }
     
-    # --- Model B: SVM ---
+    # --- Model B: SVM (with new optimizations) ---
     svm_grid = {
-        'learning_rate': [0.001, 0.0001],
-        'lambda_param': [0.01, 0.1],
-        'n_iters': [500, 1000]
+        'learning_rate': [0.01, 0.001],
+        'lambda_param': [0.001, 0.01, 0.1],
+        'n_iters': [500, 1000, 2000],
+        'batch_size': [32, 64],
+        'lr_decay': [True],         # Enable learning rate decay
+        'early_stopping': [True],    # Enable early stopping
+        'patience': [30, 50]         # Patience for early stopping
     }
 
     # --- Model C: LogReg (with new hyperparameters) ---
@@ -241,16 +266,51 @@ def main():
     winner_name = max(scores, key=scores.get)
     print(f"\nWinning Model: {winner_name} (Acc: {scores[winner_name]:.4f})")
     
+    # Generate timestamp for file naming
+    date_str = datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')
+    
     # Retrain winner on FULL dataset (Balanced)
     final_model = None
     if winner_name == "DTL":
         final_model = DecisionTreeScratch(**best_dtl_params)
+        # Use 15% of balanced data for pruning
+        n_prune = int(0.15 * len(X_train_bal))
+        prune_idx = np.random.choice(len(X_train_bal), n_prune, replace=False)
+        train_mask = np.ones(len(X_train_bal), dtype=bool)
+        train_mask[prune_idx] = False
+        
+        X_prune = X_train_bal[prune_idx]
+        y_prune = y_train_bal[prune_idx]
+        X_train_final = X_train_bal[train_mask]
+        y_train_final = y_train_bal[train_mask]
+        
+        final_model.fit(X_train_final, y_train_final, X_val=X_prune, y_val=y_prune)
+        
+        # Print DTL info
+        print(f"\nDecision Tree Info:")
+        print(f"  Depth: {final_model.get_depth()}")
+        print(f"  Leaves: {final_model.get_n_leaves()}")
+        print(f"  Top 5 Feature Importances: {final_model.feature_importances_[:5]}")
     elif winner_name == "SVM":
         final_model = SVMScratch(**best_svm_params)
-    else :
+        final_model.fit(X_train_bal, y_train_bal)
+    else:
         final_model = OneVsAll(**best_lr_params)
+        final_model.fit(X_train_bal, y_train_bal)
+    
+    # [BONUS] If SVM wins, save training visualization
+    if winner_name == "SVM":
+        print("\n[BONUS] Generating SVM Training Visualization...")
+        plot_path = f"doc/svm_training_progress_{date_str}.png"
+        final_model.plot_training_history(save_path=plot_path, show=False)
         
-    final_model.fit(X_train_bal, y_train_bal)
+        # Print training summary
+        summary = final_model.get_training_summary()
+        print("\nSVM Training Summary:")
+        class_names = {0: 'Dropout', 1: 'Enrolled', 2: 'Graduate'}
+        for cls, stats in summary.items():
+            print(f"  {class_names.get(cls, cls)}: Epochs={stats['epochs_trained']}, "
+                  f"Final Acc={stats['final_accuracy']:.4f}, Best Acc={stats['best_accuracy']:.4f}")
     
     # Predict on Kaggle Test Set
     numeric_preds = final_model.predict(X_test_kaggle)
@@ -264,8 +324,6 @@ def main():
         'Student_ID': test_ids,
         'Target': string_preds 
     })
-    
-    date_str = datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')
 
     submission_path = f"data/submission/submission_{winner_name}_{date_str}.csv"
     submission_df.to_csv(submission_path, index=False)
