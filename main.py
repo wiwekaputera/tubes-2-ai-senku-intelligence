@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 # Add src to path so we can import modules
 sys.path.append(os.path.join(os.path.dirname(__file__), 'src'))
 
-from src.preprocessing import run_full_pipeline as run_pipeline
+from src.preprocessing import run_full_pipeline as run_pipeline, SMOTEScratch
 from src.dtl_scratch import DecisionTreeScratch
 from src.linear_models import LogisticRegression, OneVsAll
 from src.svm_scratch import SVMScratch
@@ -28,6 +28,7 @@ def load_processed_data():
         sys.exit(1)
 
 def random_oversampling(X, y):
+    """Simple random oversampling (fallback method)."""
     unique_classes, counts = np.unique(y, return_counts=True)
     max_count = np.max(counts)
     
@@ -52,7 +53,55 @@ def random_oversampling(X, y):
     perm = np.random.permutation(len(X_res))
     return X_res[perm], y_res[perm]
 
-def k_fold_cross_validation(model_class, params, X, y, k=5):
+
+def smote_oversampling(X, y, k_neighbors=5, random_state=42):
+    """
+    Apply SMOTE (Synthetic Minority Over-sampling Technique).
+    
+    SMOTE creates synthetic samples by interpolating between existing
+    minority class samples, which is more effective than simple duplication.
+    
+    Parameters:
+    -----------
+    X : np.ndarray
+        Feature matrix.
+    y : np.ndarray  
+        Target labels.
+    k_neighbors : int
+        Number of neighbors to use for synthetic sample generation.
+    random_state : int
+        Random seed for reproducibility.
+        
+    Returns:
+    --------
+    X_resampled, y_resampled : Balanced dataset.
+    """
+    smote = SMOTEScratch(k_neighbors=k_neighbors, random_state=random_state)
+    return smote.fit_resample(X, y)
+
+def k_fold_cross_validation(model_class, params, X, y, k=5, use_smote=True):
+    """
+    K-Fold Cross Validation with optional SMOTE oversampling.
+    
+    Parameters:
+    -----------
+    model_class : class
+        Model class to instantiate.
+    params : dict
+        Model hyperparameters.
+    X : np.ndarray
+        Feature matrix.
+    y : np.ndarray
+        Target labels.
+    k : int
+        Number of folds.
+    use_smote : bool
+        If True, use SMOTE; otherwise use random oversampling.
+        
+    Returns:
+    --------
+    float : Mean accuracy across folds.
+    """
     fold_size = len(X) // k
     indices = np.arange(len(X))
     np.random.shuffle(indices)
@@ -70,8 +119,14 @@ def k_fold_cross_validation(model_class, params, X, y, k=5):
         X_fold_val, y_fold_val = X[val_idx], y[val_idx]
         
         # 2. OVERSAMPLE (Only the Training Portion!)
-        # We reuse your existing random_oversampling function here
-        X_fold_train_bal, y_fold_train_bal = random_oversampling(X_fold_train_raw, y_fold_train_raw)
+        if use_smote:
+            X_fold_train_bal, y_fold_train_bal = smote_oversampling(
+                X_fold_train_raw, y_fold_train_raw, k_neighbors=5, random_state=42+i
+            )
+        else:
+            X_fold_train_bal, y_fold_train_bal = random_oversampling(
+                X_fold_train_raw, y_fold_train_raw
+            )
         
         # 3. TRAIN (On Balanced Data)
         model = model_class(**params)
@@ -135,10 +190,10 @@ def main():
     # 1. Load Data
     X_train, y_train, X_test_kaggle, test_ids = load_processed_data()
     
-    # 2. Handle Imbalance (Crucial for scratching algorithms!)
+    # 2. Handle Imbalance using SMOTE (Better than random oversampling!)
     print(f"[3] Original Class Distribution: {np.unique(y_train, return_counts=True)}")
-    X_train_bal, y_train_bal = random_oversampling(X_train, y_train)
-    print(f"[4] Balanced Class Distribution: {np.unique(y_train_bal, return_counts=True)}")
+    X_train_bal, y_train_bal = smote_oversampling(X_train, y_train, k_neighbors=5, random_state=42)
+    print(f"[4] SMOTE Balanced Class Distribution: {np.unique(y_train_bal, return_counts=True)}")
     
     # 3. Define Grids for each model
     
@@ -155,11 +210,14 @@ def main():
         'n_iters': [500, 1000]
     }
 
-    # --- Model C: LogReg ---
+    # --- Model C: LogReg (with new hyperparameters) ---
     lr_grid = {
         'model_class': [LogisticRegression],
-        'learning_rate': [0.001, 0.0001],
-        'n_iterations': [500, 1000]
+        'learning_rate': [0.01, 0.1],
+        'n_iterations': [500, 1000],
+        'batch_size': [32, 64],
+        'lambda_reg': [0.001, 0.01, 0.1],  # L2 regularization strength
+        'decay_rate': [0.0, 0.001]  # Learning rate decay
     }
 
     # 4. Run Grid Search
@@ -207,7 +265,7 @@ def main():
         'Target': string_preds 
     })
     
-    date_str = datetime.now(timezone.utc).strftime('%Y%m%d')
+    date_str = datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')
 
     submission_path = f"data/submission/submission_{winner_name}_{date_str}.csv"
     submission_df.to_csv(submission_path, index=False)
