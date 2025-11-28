@@ -1,6 +1,160 @@
 import pandas as pd
 import numpy as np
 import os
+from scipy.spatial.distance import cdist
+
+class SMOTEScratch:
+    """
+    Synthetic Minority Over-sampling Technique (SMOTE) - From Scratch.
+    
+    SMOTE generates synthetic samples by interpolating between existing 
+    minority class samples and their k-nearest neighbors.
+    
+    This is DATA AUGMENTATION, not a model - compliant with project rules.
+    """
+    
+    def __init__(self, k_neighbors=5, random_state=42):
+        """
+        Parameters:
+        -----------
+        k_neighbors : int
+            Number of nearest neighbors to use for synthetic sample generation.
+        random_state : int
+            Random seed for reproducibility.
+        """
+        self.k_neighbors = k_neighbors
+        self.random_state = random_state
+    
+    def _get_neighbors(self, X, sample_idx, k):
+        """
+        Find k-nearest neighbors for a sample using Euclidean distance.
+        
+        Parameters:
+        -----------
+        X : np.ndarray
+            Feature matrix for a single class.
+        sample_idx : int
+            Index of the sample to find neighbors for.
+        k : int
+            Number of neighbors to find.
+            
+        Returns:
+        --------
+        np.ndarray : Indices of k-nearest neighbors.
+        """
+        # Calculate distances from this sample to all others
+        sample = X[sample_idx].reshape(1, -1)
+        distances = cdist(sample, X, metric='euclidean').flatten()
+        
+        # Set distance to self as infinity so it's not selected
+        distances[sample_idx] = np.inf
+        
+        # Get indices of k smallest distances
+        neighbor_indices = np.argsort(distances)[:k]
+        return neighbor_indices
+    
+    def _generate_synthetic_sample(self, sample, neighbor, rng):
+        """
+        Generate a synthetic sample between sample and its neighbor.
+        
+        synthetic = sample + rand(0,1) * (neighbor - sample)
+        
+        Parameters:
+        -----------
+        sample : np.ndarray
+            The original sample.
+        neighbor : np.ndarray
+            A neighbor of the sample.
+        rng : np.random.Generator
+            Random number generator.
+            
+        Returns:
+        --------
+        np.ndarray : Synthetic sample.
+        """
+        # Random interpolation factor between 0 and 1
+        alpha = rng.random()
+        
+        # Linear interpolation
+        synthetic = sample + alpha * (neighbor - sample)
+        return synthetic
+    
+    def fit_resample(self, X, y):
+        """
+        Resample the dataset to balance classes using SMOTE.
+        
+        Parameters:
+        -----------
+        X : np.ndarray
+            Feature matrix (n_samples, n_features).
+        y : np.ndarray
+            Target labels (n_samples,).
+            
+        Returns:
+        --------
+        X_resampled : np.ndarray
+            Resampled feature matrix.
+        y_resampled : np.ndarray
+            Resampled target labels.
+        """
+        rng = np.random.default_rng(self.random_state)
+        
+        classes, counts = np.unique(y, return_counts=True)
+        max_count = np.max(counts)
+        
+        X_resampled = [X.copy()]
+        y_resampled = [y.copy()]
+        
+        for cls, count in zip(classes, counts):
+            if count >= max_count:
+                continue  # Skip majority class
+            
+            # Get samples of this class
+            cls_indices = np.where(y == cls)[0]
+            X_cls = X[cls_indices]
+            
+            # Number of synthetic samples needed
+            n_synthetic = max_count - count
+            
+            # Adjust k if class has fewer samples than k_neighbors
+            k = min(self.k_neighbors, len(X_cls) - 1)
+            if k < 1:
+                # Fallback to random oversampling if class is too small
+                oversample_indices = rng.choice(len(X_cls), size=n_synthetic, replace=True)
+                X_resampled.append(X_cls[oversample_indices])
+                y_resampled.append(np.full(n_synthetic, cls))
+                continue
+            
+            # Generate synthetic samples
+            synthetic_samples = []
+            
+            for _ in range(n_synthetic):
+                # Randomly pick a sample from minority class
+                sample_idx = rng.integers(0, len(X_cls))
+                sample = X_cls[sample_idx]
+                
+                # Find its k-nearest neighbors
+                neighbor_indices = self._get_neighbors(X_cls, sample_idx, k)
+                
+                # Randomly pick one neighbor
+                neighbor_idx = rng.choice(neighbor_indices)
+                neighbor = X_cls[neighbor_idx]
+                
+                # Generate synthetic sample
+                synthetic = self._generate_synthetic_sample(sample, neighbor, rng)
+                synthetic_samples.append(synthetic)
+            
+            X_resampled.append(np.array(synthetic_samples))
+            y_resampled.append(np.full(n_synthetic, cls))
+        
+        # Concatenate all
+        X_final = np.vstack(X_resampled)
+        y_final = np.hstack(y_resampled)
+        
+        # Shuffle
+        shuffle_idx = rng.permutation(len(X_final))
+        
+        return X_final[shuffle_idx], y_final[shuffle_idx]
 
 
 # UTILITY FUNCTIONS
@@ -66,8 +220,9 @@ def extract_and_drop_ids(train_df, test_df, processed_path="data/processed"):
 def add_derived_features(df):
     """
     Create new features based on domain knowledge (Interaction Features).
+    Enhanced with more predictive features for student dropout prediction.
     """
-    # 1. Grade Trend (2nd Sem - 1st Sem)
+    # 1. Grade Trend (2nd Sem - 1st Sem) - Positive = improving
     df["Grade_Trend"] = df["Curricular units 2nd sem (grade)"] - df["Curricular units 1st sem (grade)"]
 
     # 2. Approval Trend (2nd Sem - 1st Sem)
@@ -82,9 +237,10 @@ def add_derived_features(df):
     df["Admission_Gap"] = df["Curricular units 1st sem (grade)"] - (df["Admission grade"] / 10.0)
 
     # 5. Pressure Indicator (Evaluations / Enrolled)
+    total_evaluations = df["Curricular units 1st sem (evaluations)"] + df["Curricular units 2nd sem (evaluations)"]
     df["Pressure_Indicator"] = np.where(
         total_enrolled > 0, 
-        (df["Curricular units 1st sem (evaluations)"] + df["Curricular units 2nd sem (evaluations)"]) / total_enrolled, 
+        total_evaluations / total_enrolled, 
         0.0
     )
 
@@ -105,14 +261,74 @@ def add_derived_features(df):
         0.0
     )
 
-    # 8. Economic Stress Index (Unemployment + Inflation)
+    # 8. Average Grade (weighted by credits)
+    total_grades = df["Curricular units 1st sem (grade)"] + df["Curricular units 2nd sem (grade)"]
+    df["Avg_Grade"] = np.where(total_approved > 0, total_grades / 2, 0.0)
+    
+    # 9. Credit Efficiency - How many credits approved vs evaluated
+    df["Credit_Efficiency"] = np.where(
+        total_evaluations > 0,
+        total_approved / total_evaluations,
+        0.0
+    )
+    
+    # 10. Academic Engagement Score (enrolled + evaluations weighted)
+    df["Academic_Engagement"] = total_enrolled + 0.5 * total_evaluations
+    
+    # 11. Zero Performance Flag - Student with 0 approved in any semester
+    df["Zero_Sem1_Approved"] = (df["Curricular units 1st sem (approved)"] == 0).astype(int)
+    df["Zero_Sem2_Approved"] = (df["Curricular units 2nd sem (approved)"] == 0).astype(int)
+    
+    # 12. Grade Consistency (lower std = more consistent)
+    # Using absolute difference as a proxy for std with 2 points
+    df["Grade_Consistency"] = np.abs(
+        df["Curricular units 1st sem (grade)"] - df["Curricular units 2nd sem (grade)"]
+    )
+    
+    # 13. Economic Stress Index (Unemployment + Inflation)
     df["Econ_Stress_Index"] = df["Unemployment rate"] + df["Inflation rate"]
 
-    # 9. Financial Support Gap (Scholarship - Debtor)
+    # 14. Financial Support Gap (Scholarship - Debtor)
     df["Financial_Support_Gap"] = df["Scholarship holder"] - df["Debtor"]
+    
+    # 15. Financial Risk Score (Debtor + No Scholarship + Tuition not up to date)
+    df["Financial_Risk"] = df["Debtor"] + (1 - df["Scholarship holder"]) + (1 - df["Tuition fees up to date"])
+    
+    # 16. GDP per capita stress (inverse relationship with success)
+    # Higher GDP growth might reduce dropout
+    df["GDP_Stress"] = -df["GDP"]  # Negative because higher GDP = less stress
+    
+    # 17. Age at Enrollment (derived if not present, using a proxy)
+    df["Age_Group"] = (df["Age at enrollment"] > 23).astype(int)  # Mature student flag
+    
+    # 18. Parent Education Gap
+    df["Parent_Edu_Gap"] = np.abs(
+        df["Mother's qualification"].astype(float) - df["Father's qualification"].astype(float)
+    )
+    
+    # 19. Parent Education Average (higher = more support)
+    df["Parent_Edu_Avg"] = (
+        df["Mother's qualification"].astype(float) + df["Father's qualification"].astype(float)
+    ) / 2
+    
+    # 20. First Generation Risk - both parents low qualification
+    # Assuming qualification codes: lower numbers = lower education
+    low_edu_threshold = 10  # Adjust based on actual encoding
+    df["First_Gen_Risk"] = (
+        (df["Mother's qualification"].astype(float) < low_edu_threshold) & 
+        (df["Father's qualification"].astype(float) < low_edu_threshold)
+    ).astype(int)
+    
+    # 21. Scholarship * Grade interaction (scholarship impact on performance)
+    df["Scholarship_Grade_Interaction"] = df["Scholarship holder"] * df["Avg_Grade"]
+    
+    # 22. Debtor * Failure interaction (financial stress impact)
+    df["Debtor_Failure_Interaction"] = df["Debtor"] * (df["Sem1_Failure_Rate"] + df["Sem2_Failure_Rate"])
+    
+    # 23. Age * Performance interaction
+    df["Age_Performance_Interaction"] = df["Age at enrollment"] * df["Approval_Ratio"]
 
-    print("Derived features added: Grade_Trend, Approval_Trend, Approval_Ratio, Admission_Gap, Pressure_Indicator, "
-          "Total_Failed_Credits, Sem1_Failure_Rate, Sem2_Failure_Rate, Econ_Stress_Index, Financial_Support_Gap")
+    print(f"Derived features added: {23} new features including academic, socioeconomic, demographic, and interaction features.")
     return df
 
 
