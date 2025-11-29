@@ -410,7 +410,7 @@ def grid_search(model_class, param_grid, X, y, k=5, n_jobs=2):
     print(f"Best Params: {best_params} | Best CV Score: {best_score:.4f}")
     return best_params, best_score
 
-def main(quick=False, feature_select=True):
+def main(quick=False, feature_select=True, n_jobs=2):
     print("Checking project structure...")
     
     # 1. Verify Preprocessing
@@ -420,10 +420,14 @@ def main(quick=False, feature_select=True):
     # 2. Verify Models
     dt = DecisionTreeScratch()
     svm = SVMScratch()
+    lr = LogisticRegression()
+    ova = OneVsAll()
     
     print(f"[2] Models Loaded Successfully:")
     print(f"    - {dt.__class__.__name__}")
     print(f"    - {svm.__class__.__name__}")
+    print(f"    - {lr.__class__.__name__}")
+    print(f"    - {ova.__class__.__name__}")
 
     print("\nProject scaffolding is ready.")
 
@@ -520,13 +524,13 @@ def main(quick=False, feature_select=True):
     # 4. Run Grid Search
     print("[4] Tuning")
     print("\n--- Tuning Decision Tree ---")
-    best_dtl_params, best_dtl_score = grid_search(DecisionTreeScratch, dtl_grid, X_train, y_train)
+    best_dtl_params, best_dtl_score = grid_search(DecisionTreeScratch, dtl_grid, X_train, y_train, n_jobs=n_jobs)
 
     print("\n--- Tuning SVM (OvA) ---")
-    best_svm_params, best_svm_score = grid_search(SVMScratch, svm_grid, X_train, y_train)
+    best_svm_params, best_svm_score = grid_search(SVMScratch, svm_grid, X_train, y_train, n_jobs=n_jobs)
 
     print("\n--- Tuning LogReg (OvA) ---")
-    best_lr_params, best_lr_score = grid_search(OneVsAll, lr_grid, X_train, y_train)
+    best_lr_params, best_lr_score = grid_search(OneVsAll, lr_grid, X_train, y_train, n_jobs=n_jobs)
 
     # 5. Final Training & Kaggle Submission
     # We select the best model based on CV score
@@ -671,18 +675,20 @@ def predict_only(model_path=None, model_name=None):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='ML Model Training/Prediction')
-    parser.add_argument('--predict', action='store_true', 
+    parser.add_argument('-p', '--predict', action='store_true', 
                         help='Predict-only mode (load saved model)')
-    parser.add_argument('--model', type=str, default=None,
+    parser.add_argument('-m', '--model', type=str, default=None,
                         help='Model name to load (DTL, SVM, LogReg)')
-    parser.add_argument('--model-path', type=str, default=None,
+    parser.add_argument('-P', '--model-path', type=str, default=None,
                         help='Path to specific model file')
-    parser.add_argument('--list-models', action='store_true',
+    parser.add_argument('-l', '--list-models', action='store_true',
                         help='List all saved models')
-    parser.add_argument('--quick', action='store_true',
+    parser.add_argument('-q', '--quick', action='store_true',
                         help='Quick mode with reduced hyperparameter grid')
-    parser.add_argument('--no-feature-select', action='store_true',
+    parser.add_argument('-N', '--no-feature-select', action='store_true',
                         help='Disable F-statistic feature selection')
+    parser.add_argument('-j', '--jobs', type=int, default=2,
+                        help='Number of job(s) used in training')
     
     args = parser.parse_args()
     
@@ -691,4 +697,4 @@ if __name__ == "__main__":
     elif args.predict:
         predict_only(model_path=args.model_path, model_name=args.model)
     else:
-        main(quick=args.quick, feature_select=not args.no_feature_select)
+        main(quick=args.quick, feature_select=not args.no_feature_select, n_jobs=args.jobs)
