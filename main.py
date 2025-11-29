@@ -449,7 +449,7 @@ def main(quick=False, feature_select=True):
     
     # 4. Define Grids for each model
     if quick:
-        print("\n⚡ QUICK MODE - Using reduced parameter grids")
+        print("\nQUICK MODE - Using reduced parameter grids")
         # Quick grids for fast testing
         dtl_grid = {
             'max_depth': [12, 18],
@@ -586,7 +586,7 @@ def main(quick=False, feature_select=True):
     # [BONUS] If SVM wins, save training visualization
     if winner_name == "SVM":
         print("\n[BONUS] Generating SVM Training Visualization...")
-        plot_path = f"doc/svm_training_progress_{date_str}.png"
+        plot_path = f"images/svm_training_progress_{date_str}.png"
         final_model.plot_training_history(save_path=plot_path, show=False)
         
         summary = final_model.get_training_summary()
@@ -609,7 +609,7 @@ def main(quick=False, feature_select=True):
         'Target': string_preds 
     })
 
-    submission_path = f"data/submission/submission_{winner_name}_{date_str}.csv"
+    submission_path = f"data/submit/submission_{winner_name}_{date_str}.csv"
     submission_df.to_csv(submission_path, index=False)
     print(f"\nSubmission saved to {submission_path}")
     
@@ -664,7 +664,7 @@ def predict_only(model_path=None, model_name=None):
         'Target': string_preds 
     })
     
-    submission_path = f"data/submission/submission_{model_name}_{date_str}.csv"
+    submission_path = f"data/submit/submission_{model_name}_{date_str}.csv"
     submission_df.to_csv(submission_path, index=False)
     print(f"\nSubmission saved to {submission_path}")
 
