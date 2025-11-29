@@ -505,7 +505,7 @@ def encode_data(train_df, test_df):
     # Verify columns exist
     present_nominal = [c for c in nominal_cols if c in X_train_raw.columns]
     
-    print(f"🔠 One-Hot Encoding Cols ({len(present_nominal)}): {present_nominal}")
+    print(f"One-Hot Encoding Cols ({len(present_nominal)}): {present_nominal}")
 
     # 3. One-Hot Encoding
     # We combine train/test temporarily to ensure same columns exist in both
