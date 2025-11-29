@@ -421,7 +421,7 @@ def main(quick=False, feature_select=True, n_jobs=2):
     dt = DecisionTreeScratch()
     svm = SVMScratch()
     lr = LogisticRegression()
-    ova = OneVsAll()
+    ova = OneVsAll(lr)
     
     print(f"[2] Models Loaded Successfully:")
     print(f"    - {dt.__class__.__name__}")
