@@ -1,5 +1,5 @@
 import numpy as np
-import json
+import pickle
 import matplotlib.pyplot as plt
 import os
 
@@ -267,58 +267,13 @@ class SVMScratch:
             }
         return summary
 
-    def save_model(self, file_path):
-        model_container = {
-            "hyperparams": {
-                "lr": self.learning_rate,
-                "reg": self.lambda_param,
-                "iters": self.n_iters
-            },
-            "classes": self.known_classes.tolist(),
-            "weights_data": []
-        }
-
-        for node in self.sub_classifiers:
-            node_data = {
-                "w_list": node.weights.tolist(),
-                "b_val": node.bias
-            }
-            model_container["weights_data"].append(node_data)
-        
-        try:
-            with open(file_path, 'w') as f:
-                json.dump(model_container, f, indent=4)
-            print(f"Model tersimpan di {file_path}")
-        except Exception as e:
-            print(f"Gagal menyimpan model: {e}")
-
+    def save(self, filepath):
+        """Save model to file using pickle."""
+        with open(filepath, 'wb') as f:
+            pickle.dump(self, f)
+    
     @staticmethod
-    def load_model(file_path): # Load dri JSON
-        try:
-            with open(file_path, 'r') as f:
-                data = json.load(f)
-
-            hp = data["hyperparams"]
-            new_svm = SVMScratch(
-                learning_rate=hp["lr"], 
-                lambda_param=hp["reg"], 
-                n_iters=hp["iters"]
-            )
-            new_svm.known_classes = np.array(data["classes"])
-
-            for w_data in data["weights_data"]:
-                temp_node = SVMNode()
-                temp_node.weights = np.array(w_data["w_list"])
-                temp_node.bias = w_data["b_val"]
-                temp_node.lr = hp["lr"]
-                temp_node.reg = hp["reg"]
-                temp_node.epochs = hp["iters"]
-
-                new_svm.sub_classifiers.append(temp_node)
-                
-            print(f"Model berhasil dimuat dari {file_path}")
-            return new_svm
-            
-        except FileNotFoundError:
-            print("File tidak ditemukan.")
-            return None
+    def load(filepath):
+        """Load model from file."""
+        with open(filepath, 'rb') as f:
+            return pickle.load(f)
