@@ -18,7 +18,7 @@ from src.svm_scratch import SVMScratch
 
 # ============ MODEL PERSISTENCE ============
 
-def save_model(model, model_name, params, score, selected_features=None, base_path="models"):
+def save_model(model, model_name, params, score, base_path="models"):
     """
     Save trained model with metadata.
     Uses pickle (allowed per project spec).
@@ -35,7 +35,6 @@ def save_model(model, model_name, params, score, selected_features=None, base_pa
         'params': params,
         'score': score,
         'timestamp': timestamp,
-        'selected_features': selected_features,  # Store feature selection
     }
     
     with open(filepath, 'wb') as f:
@@ -188,111 +187,7 @@ def smote_oversampling(X, y, k_neighbors=5, random_state=42):
     smote = SMOTEScratch(k_neighbors=k_neighbors, random_state=random_state)
     return smote.fit_resample(X, y)
 
-def stratified_k_fold_split(X, y, k=5, random_state=42):
-    """
-    Generate stratified k-fold indices.
-    Ensures each fold has approximately the same class distribution.
-    """
-    np.random.seed(random_state)
-    
-    classes = np.unique(y)
-    class_indices = {c: np.where(y == c)[0] for c in classes}
-    
-    # Shuffle indices within each class
-    for c in classes:
-        np.random.shuffle(class_indices[c])
-    
-    # Create folds
-    folds = [[] for _ in range(k)]
-    
-    for c in classes:
-        indices = class_indices[c]
-        n = len(indices)
-        fold_sizes = [(n // k) + (1 if i < (n % k) else 0) for i in range(k)]
-        
-        current = 0
-        for fold_idx, size in enumerate(fold_sizes):
-            folds[fold_idx].extend(indices[current:current + size])
-            current += size
-    
-    # Convert to arrays and shuffle within each fold
-    for i in range(k):
-        folds[i] = np.array(folds[i])
-        np.random.shuffle(folds[i])
-    
-    return folds
-
-
-def select_features_by_correlation(X, y, threshold=0.02):
-    """
-    Select features based on correlation with target.
-    Returns indices of features with correlation > threshold.
-    """
-    correlations = []
-    for i in range(X.shape[1]):
-        # Point-biserial correlation approximation
-        corr = np.abs(np.corrcoef(X[:, i], y)[0, 1])
-        if np.isnan(corr):
-            corr = 0
-        correlations.append(corr)
-    
-    correlations = np.array(correlations)
-    selected = np.where(correlations >= threshold)[0]
-    
-    print(f"  Feature Selection: {len(selected)}/{X.shape[1]} features kept (corr >= {threshold})")
-    return selected
-
-
-def compute_f_statistic(X, y):
-    """
-    Compute F-statistic for feature selection (ANOVA F-test).
-    Higher F = better separation between classes.
-    """
-    classes = np.unique(y)
-    n_samples, n_features = X.shape
-    overall_mean = np.mean(X, axis=0)
-    
-    f_stats = np.zeros(n_features)
-    
-    for j in range(n_features):
-        # Between-group variance
-        ss_between = 0
-        ss_within = 0
-        
-        for c in classes:
-            mask = y == c
-            group = X[mask, j]
-            group_mean = np.mean(group)
-            n_g = len(group)
-            
-            ss_between += n_g * (group_mean - overall_mean[j]) ** 2
-            ss_within += np.sum((group - group_mean) ** 2)
-        
-        # F-statistic
-        df_between = len(classes) - 1
-        df_within = n_samples - len(classes)
-        
-        if ss_within == 0 or df_within == 0:
-            f_stats[j] = 0
-        else:
-            ms_between = ss_between / df_between
-            ms_within = ss_within / df_within
-            f_stats[j] = ms_between / (ms_within + 1e-10)
-    
-    return f_stats
-
-
-def select_features_by_f_test(X, y, k=80):
-    """
-    Select top-k features by F-statistic (ANOVA).
-    """
-    f_stats = compute_f_statistic(X, y)
-    top_k_idx = np.argsort(f_stats)[::-1][:k]
-    print(f"  Feature Selection: Top {k}/{X.shape[1]} features by F-statistic")
-    return np.sort(top_k_idx)
-
-
-def k_fold_cross_validation(model_class, params, X, y, k=5, use_smote=True, stratified=True):
+def k_fold_cross_validation(model_class, params, X, y, k=5, use_smote=True):
     """
     K-Fold Cross Validation with optional SMOTE oversampling.
     
@@ -310,28 +205,23 @@ def k_fold_cross_validation(model_class, params, X, y, k=5, use_smote=True, stra
         Number of folds.
     use_smote : bool
         If True, use SMOTE; otherwise use random oversampling.
-    stratified : bool
-        If True, use stratified splitting (maintains class distribution).
         
     Returns:
     --------
     float : Mean accuracy across folds.
     """
-    # Stratified or random split
-    if stratified:
-        folds = stratified_k_fold_split(X, y, k=k)
-    else:
-        fold_size = len(X) // k
-        indices = np.arange(len(X))
-        np.random.shuffle(indices)
-        folds = [indices[i*fold_size:(i+1)*fold_size] for i in range(k)]
+    fold_size = len(X) // k
+    indices = np.arange(len(X))
+    np.random.shuffle(indices)
     
     accuracies = []
     
     for i in range(k):
-        # 1. SPLIT (Raw, Imbalanced Data) using stratified folds
-        val_idx = folds[i]
-        train_idx = np.concatenate([folds[j] for j in range(k) if j != i])
+        # 1. SPLIT (Raw, Imbalanced Data)
+        start = i * fold_size
+        end = (i + 1) * fold_size
+        val_idx = indices[start:end]
+        train_idx = np.concatenate([indices[:start], indices[end:]])
         
         X_fold_train_raw, y_fold_train_raw = X[train_idx], y[train_idx]
         X_fold_val, y_fold_val = X[val_idx], y[val_idx]
@@ -375,32 +265,24 @@ def k_fold_cross_validation(model_class, params, X, y, k=5, use_smote=True, stra
         
     return np.mean(accuracies)
 
-def grid_search(model_class, param_grid, X, y, k=5, n_jobs=2, stratified=True):
-    """
-    Grid search with parallel processing.
-    
-    Note: n_jobs=2 is often optimal. More cores can be slower due to:
-    - Process spawning overhead
-    - Memory copying to each worker
-    - Memory bandwidth bottlenecks
-    """
+def grid_search(model_class, param_grid, X, y, k=5, n_jobs=2):
     keys = param_grid.keys()
     values = param_grid.values()
     combinations = list(itertools.product(*values))
     
-    print(f"Parallel Grid Search: Testing {len(combinations)} combos on {n_jobs} cores...")
+    print(f"Parallel Grid Search: Testing {len(combinations)} combos on 2+ cores...")
     
     # Define a helper function to run ONE combination
     def run_one_combo(combo):
         params = dict(zip(keys, combo))
         try:
-            score = k_fold_cross_validation(model_class, params, X, y, k=k, stratified=stratified)
+            score = k_fold_cross_validation(model_class, params, X, y, k=k)
             return (params, score)
         except Exception as e:
             return (params, -1)
 
-    # Run in parallel (default 2 cores - often faster than using all cores)
-    results = Parallel(n_jobs=n_jobs, verbose=10)(
+    # Run in parallel using all available cores (-1)
+    results = Parallel(n_jobs, verbose=10)(
         delayed(run_one_combo)(c) for c in combinations
     )
     
@@ -436,16 +318,6 @@ def main(quick=False, feature_select=True, n_jobs=2, stratified=True):
     # 1. Load Data
     X_train, y_train, X_test_kaggle, test_ids = load_processed_data()
     
-    # 2. FEATURE SELECTION (keep most predictive features)
-    if feature_select:
-        print("\n[2.5] Feature Selection using F-statistic...")
-        selected_features = select_features_by_f_test(X_train, y_train, k=90)
-        X_train = X_train[:, selected_features]
-        X_test_kaggle = X_test_kaggle[:, selected_features]
-        print(f"      New shape: {X_train.shape}")
-    else:
-        selected_features = None
-    
     # 3. Handle Imbalance using SMOTE
     print(f"\n[3] Original Class Distribution: {np.unique(y_train, return_counts=True)}")
     X_train_bal, y_train_bal = smote_oversampling(X_train, y_train, k_neighbors=5, random_state=42)
@@ -479,7 +351,6 @@ def main(quick=False, feature_select=True, n_jobs=2, stratified=True):
             'batch_size': [32],
             'lambda_reg': [0.01],
             'decay_rate': [0.0],
-            'class_weight': ['balanced']
         }
     else:
         # FULL OPTIMIZED GRIDS - targeting 0.8+ accuracy
@@ -514,19 +385,18 @@ def main(quick=False, feature_select=True, n_jobs=2, stratified=True):
             'batch_size': [32, 64],
             'lambda_reg': [0.001, 0.01, 0.1],  # L2 regularization strength
             'decay_rate': [0.0, 0.001],  # Learning rate decay
-            'class_weight': ['balanced'],  # Handle class imbalance in OvA
         }
 
     # 4. Run Grid Search
     print("[4] Tuning")
     print("\n--- Tuning Decision Tree ---")
-    best_dtl_params, best_dtl_score = grid_search(DecisionTreeScratch, dtl_grid, X_train, y_train, n_jobs=n_jobs, stratified=stratified)
+    best_dtl_params, best_dtl_score = grid_search(DecisionTreeScratch, dtl_grid, X_train, y_train, n_jobs=n_jobs)
 
     print("\n--- Tuning SVM (OvA) ---")
-    best_svm_params, best_svm_score = grid_search(SVMScratch, svm_grid, X_train, y_train, n_jobs=n_jobs, stratified=stratified)
+    best_svm_params, best_svm_score = grid_search(SVMScratch, svm_grid, X_train, y_train, n_jobs=n_jobs)
 
     print("\n--- Tuning LogReg (OvA) ---")
-    best_lr_params, best_lr_score = grid_search(OneVsAll, lr_grid, X_train, y_train, n_jobs=n_jobs, stratified=stratified)
+    best_lr_params, best_lr_score = grid_search(OneVsAll, lr_grid, X_train, y_train, n_jobs=n_jobs)
 
     # 5. Final Training & Kaggle Submission
     # We select the best model based on CV score
@@ -560,17 +430,17 @@ def main(quick=False, feature_select=True, n_jobs=2, stratified=True):
     train_mask[prune_idx] = False
     dtl_model.fit(X_train_bal[train_mask], y_train_bal[train_mask], 
                   X_val=X_train_bal[prune_idx], y_val=y_train_bal[prune_idx])
-    save_model(dtl_model, "DTL", best_dtl_params, best_dtl_score, selected_features)
+    save_model(dtl_model, "DTL", best_dtl_params, best_dtl_score)
     
     # --- Train SVM ---
     svm_model = SVMScratch(**best_svm_params)
     svm_model.fit(X_train_bal, y_train_bal)
-    save_model(svm_model, "SVM", best_svm_params, best_svm_score, selected_features)
+    save_model(svm_model, "SVM", best_svm_params, best_svm_score)
     
     # --- Train LogReg ---
     lr_model = OneVsAll(**best_lr_params)
     lr_model.fit(X_train_bal, y_train_bal)
-    save_model(lr_model, "LogReg", best_lr_params, best_lr_score, selected_features)
+    save_model(lr_model, "LogReg", best_lr_params, best_lr_score)
     
     # Select winner for submission
     if winner_name == "DTL":
@@ -681,12 +551,8 @@ if __name__ == "__main__":
                         help='List all saved models')
     parser.add_argument('-q', '--quick', action='store_true',
                         help='Quick mode with reduced hyperparameter grid')
-    parser.add_argument('-N', '--no-feature-select', action='store_true',
-                        help='Disable F-statistic feature selection')
     parser.add_argument('-j', '--jobs', type=int, default=2,
                         help='Number of job(s) used in training')
-    parser.add_argument('-s', '--stratified', action='store_true',
-                        help='Use Stratified K-Fold Splitting')
     
     args = parser.parse_args()
     
@@ -695,4 +561,4 @@ if __name__ == "__main__":
     elif args.predict:
         predict_only(model_path=args.model_path, model_name=args.model)
     else:
-        main(quick=args.quick, feature_select=not args.no_feature_select, n_jobs=args.jobs, stratified=args.stratified)
+        main(quick=args.quick, n_jobs=args.jobs)
