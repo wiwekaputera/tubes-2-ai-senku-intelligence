@@ -375,7 +375,7 @@ def k_fold_cross_validation(model_class, params, X, y, k=5, use_smote=True, stra
         
     return np.mean(accuracies)
 
-def grid_search(model_class, param_grid, X, y, k=5, n_jobs=2):
+def grid_search(model_class, param_grid, X, y, k=5, n_jobs=2, stratified=True):
     """
     Grid search with parallel processing.
     
@@ -394,7 +394,7 @@ def grid_search(model_class, param_grid, X, y, k=5, n_jobs=2):
     def run_one_combo(combo):
         params = dict(zip(keys, combo))
         try:
-            score = k_fold_cross_validation(model_class, params, X, y, k=k)
+            score = k_fold_cross_validation(model_class, params, X, y, k=k, stratified=stratified)
             return (params, score)
         except Exception as e:
             return (params, -1)
@@ -410,7 +410,7 @@ def grid_search(model_class, param_grid, X, y, k=5, n_jobs=2):
     print(f"Best Params: {best_params} | Best CV Score: {best_score:.4f}")
     return best_params, best_score
 
-def main(quick=False, feature_select=True, n_jobs=2):
+def main(quick=False, feature_select=True, n_jobs=2, stratified=True):
     print("Checking project structure...")
     
     # 1. Verify Preprocessing
@@ -456,81 +456,77 @@ def main(quick=False, feature_select=True, n_jobs=2):
         print("\nQUICK MODE - Using reduced parameter grids")
         # Quick grids for fast testing
         dtl_grid = {
-            'max_depth': [12, 18],
-            'min_samples_split': [8],
+            'max_depth': [None],
+            'min_samples_split': [20],
             'min_samples_leaf': [3],
             'criterion': ['entropy'],
-            'min_impurity_decrease': [0.0],
+            'min_impurity_decrease': [0.002],
             'class_weight': ['balanced'],
         }
         svm_grid = {
             'learning_rate': [0.01],
-            'lambda_param': [0.001],
-            'n_iters': [1000],
+            'lambda_param': [0.01],
+            'n_iters': [2000],
             'batch_size': [32],
             'lr_decay': [True],
             'early_stopping': [True],
-            'patience': [50]
+            'patience': [30]
         }
         lr_grid = {
             'model_class': [LogisticRegression],
-            'learning_rate': [0.1],
-            'n_iterations': [1000],
-            'batch_size': [64],
-            'lambda_reg': [0.001],
-            'decay_rate': [0.001],
-            'class_weight': ['balanced'],
-            'early_stopping': [True],
-            'patience': [100],
+            'learning_rate': [0.01],
+            'n_iterations': [500],
+            'batch_size': [32],
+            'lambda_reg': [0.01],
+            'decay_rate': [0.0],
+            'class_weight': ['balanced']
         }
     else:
         # FULL OPTIMIZED GRIDS - targeting 0.8+ accuracy
-        
-        # --- Model A: Decision Tree ---
+    
+        # --- Model A: Decision Tree (Enhanced with new options) ---
+        # Focused grid on most impactful parameters
         dtl_grid = {
-            'max_depth': [10, 14, 18, 22],
-            'min_samples_split': [6, 10, 15],
-            'min_samples_leaf': [2, 4, 6],
-            'criterion': ['gini', 'entropy'],
-            'min_impurity_decrease': [0.0, 0.0005],
-            'class_weight': ['balanced'],
-            'max_features': [None, 'sqrt'],  # Add feature randomness
+            'max_depth': [10, 15, 20, None],
+            'min_samples_split': [2, 10, 20],
+            'min_samples_leaf': [1, 3, 5],
+            'criterion': ['gini', 'entropy'],  # Try both criteria
+            'min_impurity_decrease': [0.0, 0.002],  # Minimum gain to split
+            'class_weight': ['balanced'],  # Handle imbalance (key for this dataset)
         }
         
-        # --- Model B: SVM (with optimizations) ---
+        # --- Model B: SVM (with new optimizations) ---
         svm_grid = {
-            'learning_rate': [0.005, 0.01, 0.02],
-            'lambda_param': [0.0005, 0.001, 0.003],
-            'n_iters': [1500, 2500],
+            'learning_rate': [0.01, 0.001],
+            'lambda_param': [0.001, 0.01, 0.1],
+            'n_iters': [500, 1000, 2000],
             'batch_size': [32, 64],
-            'lr_decay': [True],
-            'early_stopping': [True],
-            'patience': [60, 100]
+            'lr_decay': [True],         # Enable learning rate decay
+            'early_stopping': [True],    # Enable early stopping
+            'patience': [30, 50]         # Patience for early stopping
         }
 
-        # --- Model C: LogReg OvA (FINAL PUSH) ---
+        # --- Model C: LogReg OvA (with class weights) ---
         lr_grid = {
             'model_class': [LogisticRegression],
-            'learning_rate': [0.05, 0.1, 0.15, 0.2],
-            'n_iterations': [1000, 1500, 2500],
-            'batch_size': [32, 64, 128],
-            'lambda_reg': [0.0001, 0.0005, 0.001, 0.005],
-            'decay_rate': [0.0005, 0.001],
-            'class_weight': ['balanced'],
-            'early_stopping': [True],
-            'patience': [80, 120],
+            'learning_rate': [0.01, 0.1],
+            'n_iterations': [500, 1000],
+            'batch_size': [32, 64],
+            'lambda_reg': [0.001, 0.01, 0.1],  # L2 regularization strength
+            'decay_rate': [0.0, 0.001],  # Learning rate decay
+            'class_weight': ['balanced'],  # Handle class imbalance in OvA
         }
 
     # 4. Run Grid Search
     print("[4] Tuning")
     print("\n--- Tuning Decision Tree ---")
-    best_dtl_params, best_dtl_score = grid_search(DecisionTreeScratch, dtl_grid, X_train, y_train, n_jobs=n_jobs)
+    best_dtl_params, best_dtl_score = grid_search(DecisionTreeScratch, dtl_grid, X_train, y_train, n_jobs=n_jobs, stratified=stratified)
 
     print("\n--- Tuning SVM (OvA) ---")
-    best_svm_params, best_svm_score = grid_search(SVMScratch, svm_grid, X_train, y_train, n_jobs=n_jobs)
+    best_svm_params, best_svm_score = grid_search(SVMScratch, svm_grid, X_train, y_train, n_jobs=n_jobs, stratified=stratified)
 
     print("\n--- Tuning LogReg (OvA) ---")
-    best_lr_params, best_lr_score = grid_search(OneVsAll, lr_grid, X_train, y_train, n_jobs=n_jobs)
+    best_lr_params, best_lr_score = grid_search(OneVsAll, lr_grid, X_train, y_train, n_jobs=n_jobs, stratified=stratified)
 
     # 5. Final Training & Kaggle Submission
     # We select the best model based on CV score
@@ -689,6 +685,8 @@ if __name__ == "__main__":
                         help='Disable F-statistic feature selection')
     parser.add_argument('-j', '--jobs', type=int, default=2,
                         help='Number of job(s) used in training')
+    parser.add_argument('-s', '--stratified', action='store_true',
+                        help='Use Stratified K-Fold Splitting')
     
     args = parser.parse_args()
     
@@ -697,4 +695,4 @@ if __name__ == "__main__":
     elif args.predict:
         predict_only(model_path=args.model_path, model_name=args.model)
     else:
-        main(quick=args.quick, feature_select=not args.no_feature_select, n_jobs=args.jobs)
+        main(quick=args.quick, feature_select=not args.no_feature_select, n_jobs=args.jobs, stratified=args.stratified)

@@ -1,35 +1,25 @@
 import numpy as np
 import pickle
 
-
 class LogisticRegression:
     def __init__(self, learning_rate=0.01, n_iterations=1000, 
                  batch_size=32, lambda_reg=0.01, decay_rate=0.0,
-                 class_weight=None, early_stopping=False, patience=50,
-                 tol=1e-5):
+                 class_weight=None):
         """
-        Enhanced Logistic Regression with early stopping.
-        
         Parameters:
         -----------
         learning_rate : float
             Initial learning rate (eta_0)
         n_iterations : int
-            Maximum number of epochs
+            Number of epochs (full passes over the data)
         batch_size : int
             Size of mini-batches. Use -1 for full-batch GD.
         lambda_reg : float
-            L2 regularization strength
+            L2 regularization strength. Higher = more regularization.
         decay_rate : float
             Learning rate decay. lr = lr_0 / (1 + decay_rate * epoch)
         class_weight : None, 'balanced', or dict
-            Weights for each class to handle imbalance
-        early_stopping : bool
-            If True, stop when validation loss stops improving
-        patience : int
-            Number of epochs to wait before early stopping
-        tol : float
-            Minimum improvement threshold for early stopping
+            Weights for each class to handle imbalance.
         """
         self.learning_rate = learning_rate
         self.n_iterations = n_iterations
@@ -37,18 +27,15 @@ class LogisticRegression:
         self.lambda_reg = lambda_reg
         self.decay_rate = decay_rate
         self.class_weight = class_weight
-        self.early_stopping = early_stopping
-        self.patience = patience
-        self.tol = tol
         self.weights = None
         self.bias = None
         self.loss_history = []
         self._sample_weights = None
-        self.best_weights = None
-        self.best_bias = None
 
     def _sigmoid(self, z):
-        """Numerically stable sigmoid function."""
+        """
+        Numerically stable sigmoid function.
+        """
         z = np.clip(z, -500, 500)
         positive_mask = z >= 0
         result = np.zeros_like(z, dtype=np.float64)
@@ -90,18 +77,12 @@ class LogisticRegression:
     def fit(self, X, y):
         n_samples, n_features = X.shape
         
+        # Compute sample weights for class balancing
         sample_weights = self._compute_sample_weights(y)
         
-        # Xavier initialization
         self.weights = np.random.randn(n_features) * np.sqrt(2.0 / n_features)
         self.bias = 0.0
         self.loss_history = []
-        
-        # For early stopping
-        best_loss = np.inf
-        patience_counter = 0
-        self.best_weights = self.weights.copy()
-        self.best_bias = self.bias
         
         batch_size = n_samples if self.batch_size == -1 else min(self.batch_size, n_samples)
         n_batches = (n_samples + batch_size - 1) // batch_size
@@ -125,6 +106,7 @@ class LogisticRegression:
                 z = np.dot(X_batch, self.weights) + self.bias
                 p = self._sigmoid(z)
                 
+                # Weighted gradient
                 error = (p - y_batch) * w_batch
                 total_weight = np.sum(w_batch)
                 
@@ -135,25 +117,9 @@ class LogisticRegression:
                 self.weights -= current_lr * grad_w
                 self.bias -= current_lr * grad_b
 
-            # Early stopping check
-            if epoch % 10 == 0 or epoch == self.n_iterations - 1:
+            if epoch % 100 == 0 or epoch == self.n_iterations - 1:
                 loss = self._compute_loss(X, y, sample_weights)
                 self.loss_history.append((epoch, loss))
-                
-                if self.early_stopping:
-                    if loss < best_loss - self.tol:
-                        best_loss = loss
-                        patience_counter = 0
-                        self.best_weights = self.weights.copy()
-                        self.best_bias = self.bias
-                    else:
-                        patience_counter += 1
-                        
-                    if patience_counter >= self.patience // 10:
-                        # Restore best weights
-                        self.weights = self.best_weights
-                        self.bias = self.best_bias
-                        break
 
         return self
 
@@ -164,7 +130,7 @@ class LogisticRegression:
     def predict(self, X, threshold=0.5):
         probabilities = self.predict_proba(X)
         return (probabilities >= threshold).astype(int)
-    
+
     def save(self, filepath):
         """Save model to file using pickle."""
         with open(filepath, 'wb') as f:
@@ -207,7 +173,9 @@ class OneVsAll:
 
     def predict(self, X):
         proba_matrix = self.predict_proba(X)
+        
         best_class_indices = np.argmax(proba_matrix, axis=1)
+
         return self.classes[best_class_indices]
     
     def get_loss_history(self):
@@ -227,6 +195,4 @@ class OneVsAll:
         """Load model from file."""
         with open(filepath, 'rb') as f:
             return pickle.load(f)
-
-
 
