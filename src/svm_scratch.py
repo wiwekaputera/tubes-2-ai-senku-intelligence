@@ -5,11 +5,7 @@ import os
 
 class SVMNode:
     """
-    Binary SVM classifier using Sub-Gradient Descent with:
-    - Learning Rate Decay (1/t schedule)
-    - Mini-Batch Training
-    - Early Stopping
-    - Training History for Visualization (BONUS)
+    Binary SVM with mini batch training and early stopping
     """
     def __init__(self, learning_rate=0.001, reg_strength=0.01, max_epochs=1000,
                  batch_size=32, lr_decay=True, early_stopping=True, patience=50, tol=1e-5):
@@ -26,22 +22,22 @@ class SVMNode:
         self.weights = None
         self.bias = None
         
-        # Training history for visualization (BONUS)
+        # Training history for visualization (Ini buat bonus)
         self.loss_history = []
         self.accuracy_history = []
 
     def compute_margin(self, X):
         return np.dot(X, self.weights) + self.bias
     
+    # Hitung dengan formula max(0, 1 - y*(w.x + b)) + reg*||w||^2
     def _hinge_loss(self, X, y_scaled):
-        """Calculate hinge loss: max(0, 1 - y*(w.x + b)) + reg*||w||^2"""
         margins = y_scaled * self.compute_margin(X)
         hinge = np.maximum(0, 1 - margins)
         reg_term = 0.5 * self.reg * np.dot(self.weights, self.weights)
         return np.mean(hinge) + reg_term
     
+    # Calculate accuracy
     def _accuracy(self, X, y_scaled):
-        """Calculate binary classification accuracy"""
         predictions = np.sign(self.compute_margin(X))
         return np.mean(predictions == y_scaled)
 
@@ -56,26 +52,26 @@ class SVMNode:
         self.loss_history = []
         self.accuracy_history = []
         
-        # Early stopping variables
+        # Early stopping tracker
         best_loss = float('inf')
         patience_counter = 0
         best_weights = None
         best_bias = None
         
-        # Number of batches
+        # Batch count
         n_batches = max(1, num_samples // self.batch_size)
 
         for epoch in range(self.epochs):
-            # Learning Rate Decay: lr = lr_init / (1 + decay_rate * epoch)
+            # LR Decay: lr = lr_init / (1 + decay_rate * epoch)
             if self.lr_decay:
                 self.lr = self.lr_init / (1 + 0.01 * epoch)
             
-            # Shuffle data at each epoch
+            # Shuffle every epoch
             indices = np.random.permutation(num_samples)
             X_shuffled = X_train[indices]
             y_shuffled = y_scaled[indices]
             
-            # Mini-Batch Training
+            # Mini batch training
             for batch_idx in range(n_batches):
                 start = batch_idx * self.batch_size
                 end = min(start + self.batch_size, num_samples)
@@ -84,13 +80,13 @@ class SVMNode:
                 y_batch = y_shuffled[start:end]
                 batch_size_actual = len(y_batch)
                 
-                # 1. Compute margins for batch
+                # Calculate marginnya
                 margins = np.dot(X_batch, self.weights) + self.bias
                 
-                # 2. Find misclassified samples (margin < 1)
+                # Find misclassified samples (margin < 1)
                 misclassified = (y_batch * margins) < 1
                 
-                # 3. Compute gradients
+                # Compute gradients
                 grad_w = self.reg * self.weights
                 grad_b = 0
                 
@@ -101,18 +97,17 @@ class SVMNode:
                     grad_w -= np.dot(y_mis, X_mis) / batch_size_actual
                     grad_b -= np.sum(y_mis) / batch_size_actual
                 
-                # 4. Update weights and bias
+                # Update weights and bias
                 self.weights -= self.lr * grad_w
                 self.bias -= self.lr * grad_b
             
-            # Calculate loss and accuracy for this epoch (for visualization)
             current_loss = self._hinge_loss(X_train, y_scaled)
             current_acc = self._accuracy(X_train, y_scaled)
             
             self.loss_history.append(current_loss)
             self.accuracy_history.append(current_acc)
             
-            # Early Stopping Check
+            # Early Stopping
             if self.early_stopping:
                 if current_loss < best_loss - self.tol:
                     best_loss = current_loss
@@ -123,7 +118,6 @@ class SVMNode:
                     patience_counter += 1
                     
                 if patience_counter >= self.patience:
-                    # Restore best weights
                     self.weights = best_weights
                     self.bias = best_bias
                     break
@@ -132,11 +126,7 @@ class SVMNode:
 
 class SVMScratch:
     """
-    Multiclass SVM using One-vs-All strategy with:
-    - Learning Rate Decay
-    - Mini-Batch Training
-    - Early Stopping
-    - Training Visualization (BONUS)
+    Multiclass SVM using One-vs-All strategy
     """
     def __init__(self, learning_rate=0.001, lambda_param=0.01, n_iters=1000,
                  batch_size=32, lr_decay=True, early_stopping=True, patience=50):
@@ -151,11 +141,11 @@ class SVMScratch:
         self.sub_classifiers = []
         self.known_classes = []
         
-        # Training history for all classes (BONUS)
+        # Store training history all classes(buat bonus)
         self.training_history = {}
 
+    # One-vs-All
     def fit(self, features, targets): 
-        # One-vs-All
         self.sub_classifiers = []
         self.known_classes = np.unique(targets)
         self.training_history = {}
@@ -208,11 +198,8 @@ class SVMScratch:
         winning_indices = np.argmax(scores_matrix, axis=1)
         return self.known_classes[winning_indices]
     
+    # Bonus: Visualisasi proses trainingnya
     def plot_training_history(self, save_path=None, show=True):
-        """
-        [BONUS] Visualize training process for each OvA classifier.
-        Creates plots of loss and accuracy over epochs.
-        """
         n_classes = len(self.known_classes)
         fig, axes = plt.subplots(2, n_classes, figsize=(5*n_classes, 8))
         
@@ -254,8 +241,8 @@ class SVMScratch:
         
         return fig
     
+    # Get summary stats
     def get_training_summary(self):
-        """Get summary statistics of training for each classifier"""
         summary = {}
         for cls in self.known_classes:
             history = self.training_history[cls]
@@ -267,13 +254,13 @@ class SVMScratch:
             }
         return summary
 
+    # Save model dengan pickle
     def save(self, filepath):
-        """Save model to file using pickle."""
         with open(filepath, 'wb') as f:
             pickle.dump(self, f)
     
     @staticmethod
     def load(filepath):
-        """Load model from file."""
+        # Load model from file
         with open(filepath, 'rb') as f:
             return pickle.load(f)
