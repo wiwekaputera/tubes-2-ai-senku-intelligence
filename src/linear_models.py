@@ -6,9 +6,16 @@ import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation
 from matplotlib import cm
 
+
 class LogisticRegression:
-    def __init__(self, learning_rate=0.01, n_iterations=1000, 
-                 batch_size=32, lambda_reg=0.01, decay_rate=0.0):
+    def __init__(
+        self,
+        learning_rate=0.01,
+        n_iterations=1000,
+        batch_size=32,
+        lambda_reg=0.01,
+        decay_rate=0.0,
+    ):
         """
         Logistic Regression (mini-batch GD) + L2 regularization + learning-rate decay.
 
@@ -40,15 +47,18 @@ class LogisticRegression:
         p = np.clip(p, eps, 1 - eps)
         bce = -np.mean(y * np.log(p) + (1 - y) * np.log(1 - p))
         # Regularisasi L2, bias tidak termasuk
-        l2_term = (self.lambda_reg / (2 * n)) * np.sum(self.weights ** 2)
+        l2_term = (self.lambda_reg / (2 * n)) * np.sum(self.weights**2)
         return bce + l2_term
+
     def fit(self, X, y):
         n_samples, n_features = X.shape
         self.weights = np.random.randn(n_features) * np.sqrt(2.0 / n_features)
         self.bias = 0.0
         self.loss_history = []
-        self.theta_history = [] # Simpan (bias, w1) untuk visualisasi kontur
-        batch_size = n_samples if self.batch_size == -1 else min(self.batch_size, n_samples)
+        self.theta_history = []  # Simpan (bias, w1) untuk visualisasi kontur
+        batch_size = (
+            n_samples if self.batch_size == -1 else min(self.batch_size, n_samples)
+        )
         n_batches = (n_samples + batch_size - 1) // batch_size
 
         for epoch in range(self.n_iterations):
@@ -92,13 +102,14 @@ class LogisticRegression:
         return (probabilities >= threshold).astype(int)
 
     def save(self, filepath):
-        with open(filepath, 'wb') as f:
+        with open(filepath, "wb") as f:
             pickle.dump(self, f)
 
     @staticmethod
     def load(filepath):
-        with open(filepath, 'rb') as f:
+        with open(filepath, "rb") as f:
             return pickle.load(f)
+
 
 class OneVsAll:
     def __init__(self, model_class, **kwargs):
@@ -113,11 +124,11 @@ class OneVsAll:
 
         for k in self.classes:
             y_binary = np.where(y == k, 1, 0)
-            
+
             model = self.model_class(**self.kwargs)
             model.fit(X, y_binary)
             self.models.append(model)
-            
+
         return self
 
     def predict_proba(self, X):
@@ -125,30 +136,32 @@ class OneVsAll:
         for model in self.models:
             proba = model.predict_proba(X)
             all_probas.append(proba)
-        
+
         return np.column_stack(all_probas)
 
     def predict(self, X):
         proba_matrix = self.predict_proba(X)
-        
+
         best_class_indices = np.argmax(proba_matrix, axis=1)
 
         return self.classes[best_class_indices]
-    
+
     def get_loss_history(self):
         histories = {}
         for idx, (cls, model) in enumerate(zip(self.classes, self.models)):
-            if hasattr(model, 'loss_history'):
+            if hasattr(model, "loss_history"):
                 histories[f"class_{cls}"] = model.loss_history
         return histories
 
     def save(self, filepath):
-        with open(filepath, 'wb') as f:
+        with open(filepath, "wb") as f:
             pickle.dump(self, f)
+
     @staticmethod
     def load(filepath):
-        with open(filepath, 'rb') as f:
+        with open(filepath, "rb") as f:
             return pickle.load(f)
+
 
 # fucntion for contour visualization
 def sliced_contour_loss(theta0, theta1, X_full, y, lambda_reg, theta_fixed):
@@ -159,8 +172,9 @@ def sliced_contour_loss(theta0, theta1, X_full, y, lambda_reg, theta_fixed):
     eps = 1e-15
     p = np.clip(p, eps, 1 - eps)
     bce = -np.mean(y * np.log(p) + (1 - y) * np.log(1 - p))
-    l2_term = (lambda_reg / (2 * len(y))) * np.sum(w_full ** 2)
+    l2_term = (lambda_reg / (2 * len(y))) * np.sum(w_full**2)
     return bce + l2_term
+
 
 def visualize_contour(model_full, X_full, y, out_gif_path, grid_size=60, fps=8):
     is_ova = isinstance(model_full, OneVsAll)
@@ -183,16 +197,20 @@ def visualize_contour(model_full, X_full, y, out_gif_path, grid_size=60, fps=8):
     T0, T1 = np.meshgrid(t0, t1)
 
     # hitung hasil slicing loss Z
-    Z = np.array([
-        sliced_contour_loss(t0i, t1j, X_full, y, lambda_reg, theta_fixed)
-        for t0i, t1j in zip(np.ravel(T0), np.ravel(T1))
-    ]).reshape(T0.shape)
+    Z = np.array(
+        [
+            sliced_contour_loss(t0i, t1j, X_full, y, lambda_reg, theta_fixed)
+            for t0i, t1j in zip(np.ravel(T0), np.ravel(T1))
+        ]
+    ).reshape(T0.shape)
 
     loss_hist = list(getattr(sub_model, "loss_history", []))
     theta_path = np.array(getattr(sub_model, "theta_history", []), dtype=float)
     has_path = len(theta_path) > 0 and theta_path.ndim == 2 and theta_path.shape[1] == 2
     has_loss = len(loss_hist) > 0
-    loss_epochs = np.array([int(ep) for ep, _ in loss_hist]) if has_loss else np.array([])
+    loss_epochs = (
+        np.array([int(ep) for ep, _ in loss_hist]) if has_loss else np.array([])
+    )
 
     def path_slice_idx(frame_idx):
         if has_loss and has_path and frame_idx < len(loss_epochs):
@@ -200,7 +218,6 @@ def visualize_contour(model_full, X_full, y, out_gif_path, grid_size=60, fps=8):
             return min(idx, len(theta_path) - 1)
         return len(theta_path) - 1
 
-    
     if has_loss:
         final_epoch = int(loss_hist[-1][0])
         final_loss = float(loss_hist[-1][1])
@@ -209,34 +226,42 @@ def visualize_contour(model_full, X_full, y, out_gif_path, grid_size=60, fps=8):
 
     # Plot
     fig, ax = plt.subplots(figsize=(7, 7))
-    ax.set_title(" Visualisasi garis kontur fungsi loss (log-loss) dan lintasan parameter (θ₀, θ₁) selama training.")
-    ax.set_xlabel(r'$\theta_0$ (Bias)')
-    ax.set_ylabel(r'$\theta_1$ (Weight F1)')
+    ax.set_title(
+        " Visualisasi garis kontur fungsi loss (log-loss) dan lintasan parameter (θ₀, θ₁) selama training."
+    )
+    ax.set_xlabel(r"$\theta_0$ (Bias)")
+    ax.set_ylabel(r"$\theta_1$ (Weight F1)")
 
     levels = np.logspace(np.log10(max(Z.min() * 1.05, 1e-6)), np.log10(Z.max()), 12)
     CS = ax.contour(T0, T1, Z, levels=levels, cmap=cm.viridis, linewidths=0.7)
-    ax.clabel(CS, inline=1, fontsize=8, fmt='%1.2f')
+    ax.clabel(CS, inline=1, fontsize=8, fmt="%1.2f")
 
-    line, = ax.plot([], [], 'r-', marker='o', markersize=4, label='Proyeksi Lintasan (bias,w1)')
-    point, = ax.plot([], [], 'ro', markersize=8, label='Posisi Saat Ini', alpha=0.9)
-    optpt, = ax.plot([theta0_final], [theta1_final], 'ro', markersize=8, label='Optimum', alpha=0.4)
-    text_info = ax.text(0.05, 0.95, '', transform=ax.transAxes)
+    (line,) = ax.plot(
+        [], [], "r-", marker="o", markersize=4, label="Proyeksi Lintasan (bias,w1)"
+    )
+    (point,) = ax.plot([], [], "ro", markersize=8, label="Posisi Saat Ini", alpha=0.9)
+    (optpt,) = ax.plot(
+        [theta0_final], [theta1_final], "ro", markersize=8, label="Optimum", alpha=0.4
+    )
+    text_info = ax.text(0.05, 0.95, "", transform=ax.transAxes)
 
     def init():
         line.set_data([], [])
         point.set_data([], [])
         if has_loss:
-            text_info.set_text(f"Epoch: {int(loss_hist[0][0])}\nLoss: {float(loss_hist[0][1]):.4f}")
+            text_info.set_text(
+                f"Epoch: {int(loss_hist[0][0])}\nLoss: {float(loss_hist[0][1]):.4f}"
+            )
         else:
-            text_info.set_text('Epoch: 0')
-        ax.legend(loc='upper right')
+            text_info.set_text("Epoch: 0")
+        ax.legend(loc="upper right")
         return line, point, optpt, text_info
 
     def update(frame):
         if has_path:
             end_idx = path_slice_idx(frame)
-            t0_path = theta_path[:end_idx+1, 0]
-            t1_path = theta_path[:end_idx+1, 1]
+            t0_path = theta_path[: end_idx + 1, 0]
+            t1_path = theta_path[: end_idx + 1, 1]
             line.set_data(t0_path, t1_path)
             point.set_data([t0_path[-1]], [t1_path[-1]])
         if has_loss:
@@ -245,12 +270,16 @@ def visualize_contour(model_full, X_full, y, out_gif_path, grid_size=60, fps=8):
         return line, point, optpt, text_info
 
     frames = len(loss_hist) if has_loss else (len(theta_path) if has_path else 1)
-    ani = FuncAnimation(fig, update, frames=frames, init_func=init, blit=True, interval=200)
+    ani = FuncAnimation(
+        fig, update, frames=frames, init_func=init, blit=True, interval=200
+    )
 
     project_root = os.path.dirname(os.path.dirname(__file__))
     os.makedirs(os.path.join(project_root, "images"), exist_ok=True)
-    ani.save(out_gif_path, writer='pillow', fps=fps)
+    ani.save(out_gif_path, writer="pillow", fps=fps)
     plt.close(fig)
 
     if final_epoch is not None:
-        print(f"GIF disimpan: {out_gif_path} \n Epoch={final_epoch}, Loss={final_loss:.6f}")
+        print(
+            f"GIF disimpan: {out_gif_path} \n Epoch={final_epoch}, Loss={final_loss:.6f}"
+        )
