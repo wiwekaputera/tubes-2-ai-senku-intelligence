@@ -195,31 +195,66 @@ def add_derived_features(df):
     return df
 
 # Encode target  
+def encode_target(train_df):
+    """
+    Encode Target column: Dropout->0, Enrolled->1, Graduate->2
+    Returns X (features) and y (encoded labels)
+    """
+    target_map = {"Dropout": 0, "Enrolled": 1, "Graduate": 2}
+
+    if "Target" not in train_df.columns:
+        raise ValueError("Target column not found in train.csv")
+
+    y = train_df["Target"].map(target_map).values
+    X = train_df.drop(columns=["Target"])
+
+    print(f"Target encoded. X shape: {X.shape}, y shape: {y.shape}")
+    return X, y
+
 def encode_data(train_df, test_df):
+    """
+    1. Encodes Target (Dropout -> 0)
+    2. One-Hot Encodes Categorical Features based on explicit domain knowledge.
+    """
+    # 1. Encode Target
     target_map = {"Dropout": 0, "Enrolled": 1, "Graduate": 2}
     if "Target" not in train_df.columns:
         raise ValueError("Target column not found")
 
     y_train = train_df["Target"].map(target_map).values
+
+    # Drop Target from features
     X_train_raw = train_df.drop(columns=["Target"])
-    X_test_raw = test_df.copy()
-    # Kolom categorical
+    X_test_raw = test_df.copy()  # Test set has no target
+
+    # 2. Define Explicit Feature Types
     nominal_cols = [
-        "Marital status", "Application mode", "Course", "Previous qualification",
-        "Nacionality", "Mother's qualification", "Father's qualification",
-        "Mother's occupation", "Father's occupation"
+        "Marital status",
+        "Application mode",
+        "Course",
+        "Previous qualification",
+        "Nacionality",
+        "Mother's qualification",
+        "Father's qualification",
+        "Mother's occupation",
+        "Father's occupation"
     ]
 
+    # Verify columns exist
     present_nominal = [c for c in nominal_cols if c in X_train_raw.columns]
-
+    
     print(f"One-Hot Encoding Cols ({len(present_nominal)}): {present_nominal}")
 
+    # 3. One-Hot Encoding
     combined = pd.concat([X_train_raw, X_test_raw], axis=0)
+    
+    # Explicitly cast nominal cols to object to force get_dummies to treat them as cat
     for col in present_nominal:
         combined[col] = combined[col].astype(str)
 
     combined_encoded = pd.get_dummies(combined, columns=present_nominal, dtype=int, drop_first=True)
 
+    # Split back
     X_train_encoded = combined_encoded.iloc[: len(X_train_raw)]
     X_test_encoded = combined_encoded.iloc[len(X_train_raw) :]
 
