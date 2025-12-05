@@ -1,5 +1,7 @@
 import numpy as np
 import pickle
+import matplotlib.pyplot as plt
+from matplotlib.patches import Rectangle
 
 class DecisionTreeScratch:
     """
@@ -393,19 +395,15 @@ class DecisionTreeScratch:
     
     # Bonus: Tree Visualization
     def visualize_tree(self, max_depth=3, save_path='tree.png'):
-        try:
-            import matplotlib.pyplot as plt
-            from matplotlib.patches import Rectangle
-        except:
-            print("need matplotlib")
-            return
-        
+
         def limit(node, d, curr=0):
             if node['leaf'] or curr >= d:
                 return {'leaf': True, 'value': node.get('value', 0), 'n_samples': node.get('n_samples', 0)}
-            return {'leaf': False, 'feature': node['feature'], 'threshold': node['threshold'],
-                   'n_samples': node.get('n_samples', 0),
-                   'left': limit(node['left'], d, curr+1), 'right': limit(node['right'], d, curr+1)}
+            return {
+                'leaf': False,'feature': node['feature'],'threshold': node['threshold'],
+                'n_samples': node.get('n_samples', 0),
+                'left': limit(node['left'], d, curr+1),'right': limit(node['right'], d, curr+1)
+            }
         
         def draw(ax, node, x, y, w, positions):
             positions[id(node)] = (x, y)
@@ -415,14 +413,16 @@ class DecisionTreeScratch:
             else:
                 ax.add_patch(Rectangle((x-0.25, y-0.12), 0.5, 0.24, fc='lightblue', ec='black', lw=1.5))
                 ax.text(x, y, f"X[{node['feature']}] <= {node['threshold']:.2f}\nn={node['n_samples']}", 
-                       ha='center', va='center', fontsize=9)
+                        ha='center', va='center', fontsize=9)
                 draw(ax, node['left'], x-w/2, y-1.2, w/2, positions)
                 draw(ax, node['right'], x+w/2, y-1.2, w/2, positions)
+
                 x_l, y_l = positions[id(node['left'])]
                 x_r, y_r = positions[id(node['right'])]
+
                 ax.plot([x, x_l], [y-0.12, y_l+0.12], 'k-', lw=1)
                 ax.plot([x, x_r], [y-0.12, y_r+0.12], 'k-', lw=1)
-        
+
         tree = limit(self.tree, max_depth)
         fig, ax = plt.subplots(figsize=(14, 10))
         ax.axis('off')
@@ -437,12 +437,6 @@ class DecisionTreeScratch:
     
     # Best 10 top splits are saved
     def visualize_top_branches(self, n=10, save_path='top_branches.png'):
-        try:
-            import matplotlib.pyplot as plt
-        except:
-            print("Matplotlib not installed")
-            return
-        
         nodes = []
         def collect(node, d=0):
             if not node['leaf']:
@@ -461,6 +455,7 @@ class DecisionTreeScratch:
         
         t = ax.table(cellText=data, colLabels=['Rank', 'Feature', 'Threshold', 'Gain', 'Samples', 'Depth'],
                     cellLoc='center', loc='center')
+        
         t.auto_set_font_size(False)
         t.set_fontsize(8)
         t.scale(1, 1.8)
@@ -473,29 +468,30 @@ class DecisionTreeScratch:
         plt.close()
         print(f"Tree has been saved in: {save_path}")
 
-# For testing 
-if __name__ == "__main__":
-    import os
+
+# # For testing 
+# if __name__ == "__main__":
+#     import os
     
-    print("Loading data...")
-    X_train = np.load("data/processed/X_train.npy")
-    y_train = np.load("data/processed/y_train.npy")
-    X_val = np.load("data/processed/X_val.npy")
-    y_val = np.load("data/processed/y_val.npy")
+#     print("Loading data...")
+#     X_train = np.load("data/processed/X_train.npy")
+#     y_train = np.load("data/processed/y_train.npy")
+#     X_val = np.load("data/processed/X_val.npy")
+#     y_val = np.load("data/processed/y_val.npy")
     
-    print("Training...")
-    model = DecisionTreeScratch(max_depth=7, min_samples_split=8, min_samples_leaf=4)
-    model.fit(X_train, y_train)
+#     print("Training...")
+#     model = DecisionTreeScratch(max_depth=7, min_samples_split=8, min_samples_leaf=4)
+#     model.fit(X_train, y_train)
     
-    train_acc = np.mean(model.predict(X_train) == y_train)
-    val_acc = np.mean(model.predict(X_val) == y_val)
-    print(f"Train acc: {train_acc*100:.2f}%")
-    print(f"Val acc: {val_acc*100:.2f}%")
+#     train_acc = np.mean(model.predict(X_train) == y_train)
+#     val_acc = np.mean(model.predict(X_val) == y_val)
+#     print(f"Train acc: {train_acc*100:.2f}%")
+#     print(f"Val acc: {val_acc*100:.2f}%")
     
-    print("\nGenerating Tree Visualization...")
-    os.makedirs("doc", exist_ok=True)
+#     print("\nGenerating Tree Visualization...")
+#     os.makedirs("doc", exist_ok=True)
     
-    model.visualize_tree(max_depth=3, save_path='doc/tree_depth3.png')
-    model.visualize_top_branches(n=10, save_path='doc/tree_top10.png')
+#     model.visualize_tree(max_depth=3, save_path='doc/tree_depth3.png')
+#     model.visualize_top_branches(n=10, save_path='doc/tree_top10.png')
     
-    print("Finished!")
+#     print("Finished!")
